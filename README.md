@@ -38,8 +38,10 @@ Pass via `context.permission_mode` in `/chat` or toggle in the UI.
 - UI “Workspace Files” shows new files after each run with buttons: Open, Download, Copy link, Copy curl.
 
 ## Skills
-- Skills live under `.claude/skills/{skill_id}/SKILL.md` (+ supporting files).
+- Skills live on the volume at `$WORKSPACE_DIR/.claude/skills/{skill_id}/SKILL.md` (+ supporting files).
+- Skills are **not** baked into the Docker build - they persist on the volume and can be added/modified without redeployment.
 - Manage via API or UI (drag/drop zip).
+- After uploading skills with scripts, they are automatically made executable on container start.
 
 ## Running Locally
 1) `python -m venv .venv && source .venv/bin/activate`
@@ -53,6 +55,7 @@ Pass via `context.permission_mode` in `/chat` or toggle in the UI.
 - `REDIS_URL` (default `redis://localhost:6379`)
 - `PORT` (default `8080`)
 - `WORKSPACE_DIR` (default `/app/workspace`)
+- `SKILLS_DIR` (default `$WORKSPACE_DIR/.claude/skills`)
 
 ## Deployment (Railway)
 - Dockerfile installs node + Claude CLI, creates `appuser`, uses entrypoint to `chown` `/app/workspace` before dropping privileges.

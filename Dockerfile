@@ -24,9 +24,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create directories and set base permissions
+# Create workspace directory and set base permissions
+# Note: Skills are managed on the volume at runtime, not baked into the build
 RUN mkdir -p /app/workspace && \
-    mkdir -p .claude/skills/hub-assistant && \
     chown -R appuser:appuser /app && \
     chmod +x /app/entrypoint.sh
 

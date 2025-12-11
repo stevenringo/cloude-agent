@@ -10,13 +10,14 @@ from claude_code_sdk import ClaudeSDKClient, ClaudeCodeOptions
 from claude_code_sdk.types import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock, SystemMessage, UserMessage
 import redis.asyncio as redis
 
-# Skills directory - relative to app root
-SKILLS_DIR = Path(__file__).parent / ".claude" / "skills"
-
 # Workspace directory for agent file operations
 # Can be overridden via WORKSPACE_DIR env var (for Railway volume mount)
 WORKSPACE_DIR = Path(os.environ.get("WORKSPACE_DIR", "/app/workspace"))
 WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Skills directory - on the volume for runtime management
+# Can be overridden via SKILLS_DIR env var
+SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", str(WORKSPACE_DIR / ".claude" / "skills")))
 
 
 class AgentManager:

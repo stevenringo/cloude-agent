@@ -1,0 +1,23 @@
+# Skills are managed on the volume, not baked into the build
+.claude/skills/
+
+# Development files
+.env
+.git
+.gitignore
+__pycache__
+*.pyc
+.venv
+venv
+*.egg-info
+.pytest_cache
+.mypy_cache
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Local test files
+test_*.py

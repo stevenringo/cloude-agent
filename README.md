@@ -24,7 +24,9 @@ A FastAPI-based API plus single-page chat UI for a Claude Code agent that can ch
 - `GET /health` — health check
 
 ## Auth
-- All endpoints except `/health` require `X-API-Key` (set via `API_KEY` env).
+- All endpoints except `/health` require authentication (set via `API_KEY` env).
+- **Header (preferred):** `X-API-Key: your-key`
+- **Query param (webhooks):** `?api_key=your-key`
 
 ## Permissions Modes
 - `default` — standard checks
@@ -43,6 +45,13 @@ Pass via `context.permission_mode` in `/chat` or toggle in the UI.
 - Manage via API or UI (drag/drop zip).
 - After uploading skills with scripts, they are automatically made executable on container start.
 
+## Commands (Slash Commands)
+- Commands are prompt templates stored at `$WORKSPACE_DIR/.claude/commands/{command_id}.md`
+- Invoke via `command` parameter in `/chat`: `{"command": "voice-transcript", "message": "the transcript text..."}`
+- Use `{{argument}}` placeholder in templates - replaced with the message content
+- Manage via API: `GET/POST/DELETE /commands`
+- Useful for webhooks that need consistent prompt formatting
+
 ## Running Locally
 1) `python -m venv .venv && source .venv/bin/activate`
 2) `pip install -r requirements.txt`
@@ -56,6 +65,7 @@ Pass via `context.permission_mode` in `/chat` or toggle in the UI.
 - `PORT` (default `8080`)
 - `WORKSPACE_DIR` (default `/app/workspace`)
 - `SKILLS_DIR` (default `$WORKSPACE_DIR/.claude/skills`)
+- `COMMANDS_DIR` (default `$WORKSPACE_DIR/.claude/commands`)
 
 ## Deployment (Railway)
 - Dockerfile installs node + Claude CLI, creates `appuser`, uses entrypoint to `chown` `/app/workspace` before dropping privileges.

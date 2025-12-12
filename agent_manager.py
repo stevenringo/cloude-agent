@@ -19,13 +19,18 @@ WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 # Can be overridden via SKILLS_DIR env var
 SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", str(WORKSPACE_DIR / ".claude" / "skills")))
 
+# Commands directory - prompt templates on the volume
+# Can be overridden via COMMANDS_DIR env var
+COMMANDS_DIR = Path(os.environ.get("COMMANDS_DIR", str(WORKSPACE_DIR / ".claude" / "commands")))
+
 
 class AgentManager:
     def __init__(self, redis_url: str):
         self.redis = redis.from_url(redis_url)
         self.conversation_histories: dict[str, list[dict]] = {}
-        # Ensure skills directory exists
+        # Ensure skills and commands directories exist
         SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+        COMMANDS_DIR.mkdir(parents=True, exist_ok=True)
     
     async def _get_stored_session(self, user_session_id: str) -> Optional[dict]:
         data = await self.redis.get(f"session:{user_session_id}")
@@ -517,6 +522,134 @@ class AgentManager:
                 full_path.unlink()
             return True
         return False
+
+    # Command management methods
+    def list_commands(self) -> list[dict]:
+        """List all available commands."""
+        commands = []
+        if COMMANDS_DIR.exists():
+            for cmd_file in COMMANDS_DIR.glob("*.md"):
+                commands.append({
+                    "id": cmd_file.stem,
+                    "path": str(cmd_file)
+                })
+        return commands
+
+    def get_command(self, command_id: str) -> Optional[str]:
+        """Get a command template by ID. Returns the template string or None."""
+        cmd_file = COMMANDS_DIR / f"{command_id}.md"
+        if cmd_file.exists():
+            return cmd_file.read_text()
+        return None
+
+    def add_command(self, command_id: str, template: str) -> dict:
+        """Add or update a command template."""
+        # Sanitize command_id
+        command_id = "".join(c for c in command_id if c.isalnum() or c in "-_").lower()
+        if not command_id:
+            raise ValueError("Invalid command ID")
+
+        cmd_file = COMMANDS_DIR / f"{command_id}.md"
+        existed = cmd_file.exists()
+        cmd_file.write_text(template)
+
+        return {
+            "id": command_id,
+            "path": str(cmd_file),
+            "created": not existed
+        }
+
+    def delete_command(self, command_id: str) -> bool:
+        """Delete a command."""
+        cmd_file = COMMANDS_DIR / f"{command_id}.md"
+        if cmd_file.exists():
+            cmd_file.unlink()
+            return True
+        return False
+
+    # Session management methods
+    def _get_sessions_dir(self) -> Path:
+        """Get the Claude sessions directory path."""
+        # Claude stores sessions at ~/.claude/projects/{project-path-hash}/
+        # For workspace at /app/workspace, Claude uses -app-workspace as the hash
+        home = Path.home()
+        sessions_base = home / ".claude" / "projects"
+
+        # Look for the workspace project directory
+        # The path encoding replaces / with - and removes leading -
+        workspace_path = str(WORKSPACE_DIR.resolve())
+        # Convert /app/workspace to -app-workspace
+        encoded_path = workspace_path.replace("/", "-")
+        if encoded_path.startswith("-"):
+            encoded_path = encoded_path[1:]
+
+        project_dir = sessions_base / encoded_path
+        return project_dir
+
+    def list_sessions(self) -> list[dict]:
+        """List all Claude sessions ordered by modified date."""
+        sessions = []
+        sessions_dir = self._get_sessions_dir()
+
+        if not sessions_dir.exists():
+            return sessions
+
+        for session_file in sessions_dir.glob("*.jsonl"):
+            stat = session_file.stat()
+            sessions.append({
+                "id": session_file.stem,
+                "filename": session_file.name,
+                "size": stat.st_size,
+                "modified": stat.st_mtime,
+                "modified_iso": datetime.fromtimestamp(stat.st_mtime).isoformat()
+            })
+
+        # Sort by modified date, newest first
+        sessions.sort(key=lambda x: x["modified"], reverse=True)
+        return sessions
+
+    def get_session(self, session_id: str) -> Optional[dict]:
+        """Get a session's JSONL content parsed into structured data."""
+        sessions_dir = self._get_sessions_dir()
+        session_file = sessions_dir / f"{session_id}.jsonl"
+
+        if not session_file.exists():
+            return None
+
+        entries = []
+        try:
+            with open(session_file, 'r') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if line:
+                        try:
+                            entry = json.loads(line)
+                            entries.append(entry)
+                        except json.JSONDecodeError:
+                            entries.append({"_parse_error": True, "_line": line_num, "_raw": line[:200]})
+        except Exception as e:
+            return {"error": str(e)}
+
+        stat = session_file.stat()
+        return {
+            "id": session_id,
+            "filename": session_file.name,
+            "size": stat.st_size,
+            "modified": stat.st_mtime,
+            "modified_iso": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "entry_count": len(entries),
+            "entries": entries
+        }
+
+    def get_session_raw(self, session_id: str) -> Optional[str]:
+        """Get a session's raw JSONL content."""
+        sessions_dir = self._get_sessions_dir()
+        session_file = sessions_dir / f"{session_id}.jsonl"
+
+        if not session_file.exists():
+            return None
+
+        return session_file.read_text()
 
     async def close(self):
         await self.redis.close()

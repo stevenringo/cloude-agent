@@ -576,12 +576,10 @@ class AgentManager:
         sessions_base = home / ".claude" / "projects"
 
         # Look for the workspace project directory
-        # The path encoding replaces / with - and removes leading -
+        # The path encoding replaces / with - (keeping the leading dash)
         workspace_path = str(WORKSPACE_DIR.resolve())
-        # Convert /app/workspace to -app-workspace
+        # Convert /app/workspace to -app-workspace (keep leading dash!)
         encoded_path = workspace_path.replace("/", "-")
-        if encoded_path.startswith("-"):
-            encoded_path = encoded_path[1:]
 
         project_dir = sessions_base / encoded_path
         return project_dir

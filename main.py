@@ -92,6 +92,10 @@ class CommandCreate(BaseModel):
     template: str = Field(..., description="Prompt template with {{argument}} placeholder for the message")
 
 
+class WorkspaceFileUpdate(BaseModel):
+    content: str = Field(..., description="Full text content to write to the file")
+
+
 @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(verify_api_key)])
 async def chat(req: ChatRequest):
     """
@@ -103,14 +107,14 @@ async def chat(req: ChatRequest):
     If `command` is specified, the message is passed through the command template before sending.
     """
     try:
-        # Process command if specified
+        # Process command if specified - send as slash command to get !` bash execution
         message = req.message
         if req.command:
             command_template = agent_manager.get_command(req.command)
             if not command_template:
                 raise HTTPException(status_code=404, detail=f"Command '{req.command}' not found")
-            # Replace {{argument}} placeholder with the message
-            message = command_template.replace("{{argument}}", req.message)
+            # Format as slash command: /{command} {message}
+            message = f"/{req.command} {req.message}"
 
         # Convert images to list of dicts if provided
         images = None
@@ -173,12 +177,14 @@ async def webhook(
     if not actual_message:
         raise HTTPException(status_code=400, detail="No message content found in body")
 
-    # Process command if specified
+    # Process command if specified - send as slash command to get !` bash execution
     if command:
+        # Verify command exists
         command_template = agent_manager.get_command(command)
         if not command_template:
             raise HTTPException(status_code=404, detail=f"Command '{command}' not found")
-        actual_message = command_template.replace("{{argument}}", actual_message)
+        # Format as slash command: /{command} {message}
+        actual_message = f"/{command} {actual_message}"
 
     result = await agent_manager.chat(
         user_session_id=str(actual_session_id),
@@ -211,7 +217,7 @@ async def chat_stream(req: ChatRequest):
 
     If `command` is specified, the message is passed through the command template before sending.
     """
-    # Process command if specified
+    # Process command if specified - send as slash command to get !` bash execution
     message = req.message
     if req.command:
         command_template = agent_manager.get_command(req.command)
@@ -220,7 +226,8 @@ async def chat_stream(req: ChatRequest):
                 iter([f"data: {json.dumps({'type': 'error', 'error': f'Command {req.command} not found'})}\n\n"]),
                 media_type="text/event-stream"
             )
-        message = command_template.replace("{{argument}}", req.message)
+        # Format as slash command: /{command} {message}
+        message = f"/{req.command} {req.message}"
 
     # Convert images to list of dicts if provided
     images = None
@@ -478,6 +485,16 @@ async def delete_workspace_file(file_path: str):
     raise HTTPException(status_code=404, detail="File not found")
 
 
+@app.put("/workspace/{file_path:path}", dependencies=[Depends(verify_api_key)])
+async def put_workspace_file(file_path: str, payload: WorkspaceFileUpdate):
+    """Create or update a text file in the workspace."""
+    try:
+        result = agent_manager.write_workspace_file(file_path, payload.content)
+        return {"status": "saved", **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # Session management endpoints
 @app.get("/sessions", dependencies=[Depends(verify_api_key)])
 async def list_sessions():
@@ -534,4 +551,3 @@ async def root():
             "GET /health": "Health check"
         }
     }
-

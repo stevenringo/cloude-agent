@@ -529,9 +529,11 @@ class AgentManager:
         commands = []
         if COMMANDS_DIR.exists():
             for cmd_file in COMMANDS_DIR.glob("*.md"):
+                rel_path = cmd_file.relative_to(WORKSPACE_DIR) if cmd_file.is_relative_to(WORKSPACE_DIR) else None
                 commands.append({
                     "id": cmd_file.stem,
-                    "path": str(cmd_file)
+                    "path": str(cmd_file),
+                    "relative_path": str(rel_path) if rel_path else None
                 })
         return commands
 
@@ -557,6 +559,30 @@ class AgentManager:
             "id": command_id,
             "path": str(cmd_file),
             "created": not existed
+        }
+
+    def write_workspace_file(self, file_path: str, content: str) -> dict:
+        """Create or update a text file in the workspace."""
+        target = Path(file_path)
+
+        if ".." in target.parts:
+            raise ValueError("Invalid path")
+
+        full_path = WORKSPACE_DIR / target
+
+        try:
+            full_path.resolve().relative_to(WORKSPACE_DIR.resolve())
+        except ValueError:
+            raise ValueError("Path must stay within workspace")
+
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(content)
+
+        stat = full_path.stat()
+        return {
+            "path": str(full_path.relative_to(WORKSPACE_DIR)),
+            "size": stat.st_size,
+            "modified": stat.st_mtime
         }
 
     def delete_command(self, command_id: str) -> bool:
@@ -651,4 +677,3 @@ class AgentManager:
 
     async def close(self):
         await self.redis.close()
-

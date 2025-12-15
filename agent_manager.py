@@ -1,6 +1,9 @@
 import json
 import os
+import logging
+import re
 import shutil
+import stat
 import zipfile
 import tempfile
 import dataclasses
@@ -11,6 +14,8 @@ from typing import Optional, Any
 from claude_code_sdk import ClaudeCodeOptions, query
 from claude_code_sdk.types import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock, SystemMessage, UserMessage
 import redis.asyncio as redis
+
+logger = logging.getLogger(__name__)
 
 # Workspace directory for agent file operations
 # Can be overridden via WORKSPACE_DIR env var (for Railway volume mount)
@@ -41,11 +46,36 @@ SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", str(WORKSPACE_DIR / ".claude" / "
 # Can be overridden via COMMANDS_DIR env var
 COMMANDS_DIR = Path(os.environ.get("COMMANDS_DIR", str(WORKSPACE_DIR / ".claude" / "commands")))
 
+_IDENTIFIER_RE = re.compile(r"^[a-z0-9_-]+$")
+
+_WEBHOOK_REQUIRED_ALLOW_RULES: list[str] = [
+    "Bash(python3:./.claude/commands/scripts/save_transcript.py*)",
+    "Bash(python3:.claude/commands/scripts/save_transcript.py*)",
+    "Bash(python3 ./.claude/commands/scripts/save_transcript.py*)",
+    "Bash(python3 .claude/commands/scripts/save_transcript.py*)",
+]
+
 def _format_query_error(*, stderr_text: str, exc: Exception) -> RuntimeError:
     stderr_text = (stderr_text or "").strip()
     if stderr_text:
         return RuntimeError(stderr_text)
     return RuntimeError(str(exc))
+
+def _normalize_identifier(raw: str, *, kind: str) -> str:
+    value = (raw or "").strip().lower()
+    if not value or not _IDENTIFIER_RE.fullmatch(value):
+        raise ValueError(f"Invalid {kind} ID")
+    return value
+
+
+def _resolve_under(base_dir: Path, user_path: str) -> Path:
+    base_resolved = base_dir.resolve()
+    rel = Path(user_path or "")
+    if rel.is_absolute():
+        raise ValueError("Absolute paths are not allowed")
+    full_path = (base_resolved / rel).resolve()
+    full_path.relative_to(base_resolved)
+    return full_path
 
 
 async def _collect_query_events(
@@ -71,6 +101,35 @@ class AgentManager:
         # Ensure skills and commands directories exist
         SKILLS_DIR.mkdir(parents=True, exist_ok=True)
         COMMANDS_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _resolve_permission_mode(self, context: Optional[dict]) -> str:
+        mode = context.get("permission_mode", "acceptEdits") if context else "acceptEdits"
+        if mode == "bypassPermissions" and os.environ.get("ALLOW_BYPASS_PERMISSIONS", "0") != "1":
+            raise PermissionError("permission_mode=bypassPermissions is disabled on this server")
+        if (context or {}).get("source") == "webhook" and mode == "bypassPermissions":
+            raise PermissionError("permission_mode=bypassPermissions is not allowed for webhook runs")
+        return mode
+
+    def _build_webhook_settings(self) -> str:
+        candidate = WORKSPACE_DIR / ".claude" / "settings.json"
+        settings_obj: dict[str, Any] = {}
+        if candidate.is_file():
+            try:
+                settings_obj = json.loads(candidate.read_text(encoding="utf-8"))
+            except Exception:
+                settings_obj = {}
+
+        permissions = settings_obj.get("permissions") if isinstance(settings_obj.get("permissions"), dict) else {}
+        allow_list = permissions.get("allow") if isinstance(permissions.get("allow"), list) else []
+        allow_list = list(allow_list)
+
+        for rule in _WEBHOOK_REQUIRED_ALLOW_RULES:
+            if rule not in allow_list:
+                allow_list.append(rule)
+
+        permissions["allow"] = allow_list
+        settings_obj["permissions"] = permissions
+        return json.dumps(settings_obj)
     
     async def _get_stored_session(self, user_session_id: str) -> Optional[dict]:
         data = await self.redis.get(f"session:{user_session_id}")
@@ -179,35 +238,13 @@ class AgentManager:
             resume_session_id = (stored or {}).get("claude_session_id")
 
         # Default to acceptEdits (safer), can override to bypassPermissions via API
-        permission_mode = context.get("permission_mode", "acceptEdits") if context else "acceptEdits"
+        permission_mode = self._resolve_permission_mode(context)
 
         # Webhook runs are non-interactive; ensure required permission rules are present so we
         # don't hang on approval prompts (e.g., command helpers like save_transcript.py).
         settings: Optional[str] = None
         if (context or {}).get("source") == "webhook":
-            required_allows = [
-                "Bash(python3:*)",
-            ]
-
-            settings_obj: dict[str, Any] = {}
-            candidate = WORKSPACE_DIR / ".claude" / "settings.json"
-            if candidate.is_file():
-                try:
-                    settings_obj = json.loads(candidate.read_text(encoding="utf-8"))
-                except Exception:
-                    settings_obj = {}
-
-            permissions = settings_obj.get("permissions") if isinstance(settings_obj.get("permissions"), dict) else {}
-            allow_list = permissions.get("allow") if isinstance(permissions.get("allow"), list) else []
-            allow_list = list(allow_list)
-
-            for rule in required_allows:
-                if rule not in allow_list:
-                    allow_list.append(rule)
-
-            permissions["allow"] = allow_list
-            settings_obj["permissions"] = permissions
-            settings = json.dumps(settings_obj)
+            settings = self._build_webhook_settings()
         
         # Set working directory to workspace for file operations and for discovering .claude/commands/ etc.
         options = ClaudeCodeOptions(
@@ -327,7 +364,11 @@ class AgentManager:
             resume_session_id = (stored or {}).get("claude_session_id")
         
         # Default to acceptEdits (safer), can override to bypassPermissions via API
-        permission_mode = context.get("permission_mode", "acceptEdits") if context else "acceptEdits"
+        permission_mode = self._resolve_permission_mode(context)
+
+        settings: Optional[str] = None
+        if (context or {}).get("source") == "webhook":
+            settings = self._build_webhook_settings()
         
         # Set working directory to workspace for file operations and for discovering .claude/commands/ etc.
         options = ClaudeCodeOptions(
@@ -335,6 +376,7 @@ class AgentManager:
             cwd=str(WORKSPACE_DIR),
             model=(model or None),
             resume=resume_session_id,
+            settings=settings,
         )
         
         # Signal that we're starting
@@ -475,6 +517,7 @@ class AgentManager:
 
     def get_skill(self, skill_id: str) -> Optional[dict]:
         """Get a specific skill's content and file listing."""
+        skill_id = _normalize_identifier(skill_id, kind="skill")
         skill_dir = SKILLS_DIR / skill_id
         skill_file = skill_dir / "SKILL.md"
         if skill_file.exists():
@@ -498,10 +541,7 @@ class AgentManager:
 
     def add_skill(self, skill_id: str, content: str) -> dict:
         """Add or update a simple skill (SKILL.md only)."""
-        # Sanitize skill_id
-        skill_id = "".join(c for c in skill_id if c.isalnum() or c in "-_").lower()
-        if not skill_id:
-            raise ValueError("Invalid skill ID")
+        skill_id = _normalize_identifier(skill_id, kind="skill")
         
         skill_dir = SKILLS_DIR / skill_id
         skill_dir.mkdir(parents=True, exist_ok=True)
@@ -524,6 +564,10 @@ class AgentManager:
         - skill-name/SKILL.md (directory at root)
         - SKILL.md (files at root, skill ID derived from zip name or frontmatter)
         """
+        max_files = int(os.environ.get("MAX_SKILL_ZIP_FILES", "200"))
+        max_total_bytes = int(os.environ.get("MAX_SKILL_ZIP_TOTAL_UNCOMPRESSED_BYTES", str(50 * 1024 * 1024)))
+        max_file_bytes = int(os.environ.get("MAX_SKILL_ZIP_FILE_UNCOMPRESSED_BYTES", str(10 * 1024 * 1024)))
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             zip_path = tmp_path / "skill.zip"
@@ -534,7 +578,37 @@ class AgentManager:
             # Extract
             extract_dir = tmp_path / "extracted"
             with zipfile.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(extract_dir)
+                members = zf.infolist()
+                if len(members) > max_files:
+                    raise ValueError(f"Zip contains too many files (max {max_files})")
+
+                total_uncompressed = 0
+                extract_base = extract_dir.resolve()
+
+                for info in members:
+                    name = (info.filename or "").replace("\\", "/")
+                    if not name or name.endswith("/"):
+                        continue
+
+                    member_path = Path(name)
+                    if member_path.is_absolute() or ".." in member_path.parts:
+                        raise ValueError("Zip contains unsafe paths")
+
+                    mode = (info.external_attr >> 16) & 0o777777
+                    if stat.S_ISLNK(mode):
+                        raise ValueError("Zip contains symlinks, which are not allowed")
+
+                    if info.file_size > max_file_bytes:
+                        raise ValueError(f"Zip member '{name}' exceeds max size ({max_file_bytes} bytes)")
+                    total_uncompressed += int(info.file_size)
+                    if total_uncompressed > max_total_bytes:
+                        raise ValueError(f"Zip exceeds max uncompressed size ({max_total_bytes} bytes)")
+
+                    dest_path = (extract_base / member_path).resolve()
+                    dest_path.relative_to(extract_base)
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(info, "r") as src, open(dest_path, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
             
             # Find SKILL.md - could be at root or in a subdirectory
             skill_md_files = list(extract_dir.rglob("SKILL.md"))
@@ -594,6 +668,7 @@ class AgentManager:
 
     def delete_skill(self, skill_id: str) -> bool:
         """Delete a skill."""
+        skill_id = _normalize_identifier(skill_id, kind="skill")
         skill_dir = SKILLS_DIR / skill_id
         if skill_dir.exists() and skill_dir.is_dir():
             shutil.rmtree(skill_dir)
@@ -602,6 +677,7 @@ class AgentManager:
     
     def export_skill_zip(self, skill_id: str) -> Optional[bytes]:
         """Export a skill as a zip file."""
+        skill_id = _normalize_identifier(skill_id, kind="skill")
         skill_dir = SKILLS_DIR / skill_id
         if not skill_dir.exists():
             return None
@@ -618,8 +694,13 @@ class AgentManager:
     # Workspace file management
     def list_workspace_files(self, subdir: str = "") -> list[dict]:
         """List files in workspace directory."""
-        target_dir = WORKSPACE_DIR / subdir if subdir else WORKSPACE_DIR
+        try:
+            target_dir = _resolve_under(WORKSPACE_DIR, subdir) if subdir else WORKSPACE_DIR.resolve()
+        except ValueError:
+            return []
         if not target_dir.exists():
+            return []
+        if not target_dir.is_dir():
             return []
         
         files = []
@@ -636,28 +717,20 @@ class AgentManager:
     
     def get_workspace_file(self, file_path: str) -> Optional[tuple[bytes, str]]:
         """Get a file from workspace. Returns (content, filename) or None."""
-        # Prevent directory traversal
-        safe_path = Path(file_path).name if ".." in file_path else file_path
-        full_path = WORKSPACE_DIR / safe_path
-        
-        if not full_path.exists() or not full_path.is_file():
-            return None
-        
-        # Check it's within workspace
         try:
-            full_path.resolve().relative_to(WORKSPACE_DIR.resolve())
+            full_path = _resolve_under(WORKSPACE_DIR, file_path)
         except ValueError:
             return None
         
+        if not full_path.exists() or not full_path.is_file():
+            return None
+
         return (full_path.read_bytes(), full_path.name)
     
     def delete_workspace_file(self, file_path: str) -> bool:
         """Delete a file or directory from workspace."""
-        safe_path = Path(file_path).name if ".." in file_path else file_path
-        full_path = WORKSPACE_DIR / safe_path
-        
         try:
-            full_path.resolve().relative_to(WORKSPACE_DIR.resolve())
+            full_path = _resolve_under(WORKSPACE_DIR, file_path)
         except ValueError:
             return False
         
@@ -685,6 +758,7 @@ class AgentManager:
 
     def get_command(self, command_id: str) -> Optional[str]:
         """Get a command template by ID. Returns the template string or None."""
+        command_id = _normalize_identifier(command_id, kind="command")
         cmd_file = COMMANDS_DIR / f"{command_id}.md"
         if cmd_file.exists():
             return cmd_file.read_text()
@@ -692,10 +766,7 @@ class AgentManager:
 
     def add_command(self, command_id: str, template: str) -> dict:
         """Add or update a command template."""
-        # Sanitize command_id
-        command_id = "".join(c for c in command_id if c.isalnum() or c in "-_").lower()
-        if not command_id:
-            raise ValueError("Invalid command ID")
+        command_id = _normalize_identifier(command_id, kind="command")
 
         cmd_file = COMMANDS_DIR / f"{command_id}.md"
         existed = cmd_file.exists()
@@ -709,15 +780,8 @@ class AgentManager:
 
     def write_workspace_file(self, file_path: str, content: str) -> dict:
         """Create or update a text file in the workspace."""
-        target = Path(file_path)
-
-        if ".." in target.parts:
-            raise ValueError("Invalid path")
-
-        full_path = WORKSPACE_DIR / target
-
         try:
-            full_path.resolve().relative_to(WORKSPACE_DIR.resolve())
+            full_path = _resolve_under(WORKSPACE_DIR, file_path)
         except ValueError:
             raise ValueError("Path must stay within workspace")
 
@@ -733,6 +797,7 @@ class AgentManager:
 
     def delete_command(self, command_id: str) -> bool:
         """Delete a command."""
+        command_id = _normalize_identifier(command_id, kind="command")
         cmd_file = COMMANDS_DIR / f"{command_id}.md"
         if cmd_file.exists():
             cmd_file.unlink()
@@ -797,8 +862,9 @@ class AgentManager:
                             entries.append(entry)
                         except json.JSONDecodeError:
                             entries.append({"_parse_error": True, "_line": line_num, "_raw": line[:200]})
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Failed to read session %s", session_id)
+            return {"error": "Failed to read session"}
 
         stat = session_file.stat()
         return {
@@ -819,7 +885,11 @@ class AgentManager:
         if not session_file.exists():
             return None
 
-        return session_file.read_text()
+        try:
+            return session_file.read_text()
+        except Exception:
+            logger.exception("Failed to read raw session %s", session_id)
+            return None
 
     async def close(self):
         await self.redis.close()

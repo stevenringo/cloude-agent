@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,14 @@ import httpx
 
 
 # Config
-API_KEY = os.environ.get("API_KEY", "dev-key")
+logger = logging.getLogger(__name__)
+
+API_KEY = os.environ.get("API_KEY")
+ALLOW_BYPASS_PERMISSIONS = os.environ.get("ALLOW_BYPASS_PERMISSIONS", "0") == "1"
+
+if not API_KEY:
+    raise RuntimeError("API_KEY is required.")
+
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 agent_manager: Optional[AgentManager] = None
@@ -46,7 +54,15 @@ app.add_middleware(
 
 async def verify_api_key(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    api_key: Optional[str] = None  # Query parameter fallback
+):
+    """Verify API key from header only."""
+    if not x_api_key or x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+async def verify_api_key_webhook(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: Optional[str] = None,  # Query parameter fallback for webhooks
 ):
     """Verify API key from header (preferred) or query parameter (fallback for webhooks)."""
     key = x_api_key or api_key
@@ -92,7 +108,10 @@ class SkillCreate(BaseModel):
 
 class CommandCreate(BaseModel):
     id: str = Field(..., description="Command identifier (alphanumeric, dashes, underscores)")
-    template: str = Field(..., description="Prompt template with {{argument}} placeholder for the message")
+    template: str = Field(
+        ...,
+        description="Full markdown content for the command file (supports $ARGUMENTS and positional args like $1, $2).",
+    )
 
 
 class WorkspaceFileUpdate(BaseModel):
@@ -110,10 +129,16 @@ async def chat(req: ChatRequest):
     If `command` is specified, the message is passed through the command template before sending.
     """
     try:
+        if (req.context and req.context.permission_mode == "bypassPermissions") and not ALLOW_BYPASS_PERMISSIONS:
+            raise HTTPException(status_code=403, detail="permission_mode=bypassPermissions is disabled on this server")
+
         # Process command if specified - send as slash command to get !` bash execution
         message = req.message
         if req.command:
-            command_template = agent_manager.get_command(req.command)
+            try:
+                command_template = agent_manager.get_command(req.command)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
             if not command_template:
                 raise HTTPException(status_code=404, detail=f"Command '{req.command}' not found")
             # Format as slash command: /{command} {message}
@@ -135,10 +160,11 @@ async def chat(req: ChatRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Unhandled /chat error")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/webhook", dependencies=[Depends(verify_api_key)])
+@app.post("/webhook", dependencies=[Depends(verify_api_key_webhook)])
 async def webhook(
     request: Request,
     command: Optional[str] = None,
@@ -185,7 +211,10 @@ async def webhook(
     # Process command if specified - send as slash command to get !` bash execution
     if command:
         # Verify command exists
-        command_template = agent_manager.get_command(command)
+        try:
+            command_template = agent_manager.get_command(command)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         if not command_template:
             raise HTTPException(status_code=404, detail=f"Command '{command}' not found")
 
@@ -223,10 +252,22 @@ async def chat_stream(req: ChatRequest):
 
     If `command` is specified, the message is passed through the command template before sending.
     """
+    if (req.context and req.context.permission_mode == "bypassPermissions") and not ALLOW_BYPASS_PERMISSIONS:
+        return StreamingResponse(
+            iter([f"data: {json.dumps({'type': 'error', 'error': 'permission_mode=bypassPermissions is disabled on this server'})}\n\n"]),
+            media_type="text/event-stream"
+        )
+
     # Process command if specified - send as slash command to get !` bash execution
     message = req.message
     if req.command:
-        command_template = agent_manager.get_command(req.command)
+        try:
+            command_template = agent_manager.get_command(req.command)
+        except ValueError as e:
+            return StreamingResponse(
+                iter([f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"]),
+                media_type="text/event-stream"
+            )
         if not command_template:
             return StreamingResponse(
                 iter([f"data: {json.dumps({'type': 'error', 'error': f'Command {req.command} not found'})}\n\n"]),
@@ -251,7 +292,8 @@ async def chat_stream(req: ChatRequest):
             ):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+            logger.exception("Unhandled /chat/stream error")
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Internal server error'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -309,8 +351,9 @@ async def list_models(refresh: bool = False):
             {"id": "claude-sonnet-4-5-20250929", "display_name": "Claude Sonnet 4.5"},
             {"id": "claude-3-5-haiku-20241022", "display_name": "Claude 3.5 Haiku"},
         ]
+        logger.exception("Failed to fetch models from Anthropic")
         _models_cache.update({"fetched_at": now, "models": fallback, "error": str(e)})
-        return {"models": fallback, "source": "fallback", "warning": f"Failed to fetch from /v1/models: {e}"}
+        return {"models": fallback, "source": "fallback", "warning": "Failed to fetch models from Anthropic; returning fallback list"}
 
 
 @app.get("/health")
@@ -338,10 +381,13 @@ async def get_artifact(file_path: str):
     from pathlib import Path
 
     artifacts_path = Path(ARTIFACTS_DIR)
-    full_path = (artifacts_path / file_path).resolve()
+    artifacts_root = artifacts_path.resolve()
+    full_path = (artifacts_root / file_path).resolve()
 
     # Security: ensure path is within artifacts directory
-    if not str(full_path).startswith(str(artifacts_path.resolve())):
+    try:
+        full_path.relative_to(artifacts_root)
+    except ValueError:
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Don't allow directory listing
@@ -373,7 +419,10 @@ async def list_skills():
 @app.get("/skills/{skill_id}", dependencies=[Depends(verify_api_key)])
 async def get_skill(skill_id: str):
     """Get a specific skill's content."""
-    skill = agent_manager.get_skill(skill_id)
+    try:
+        skill = agent_manager.get_skill(skill_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
     return skill
@@ -408,8 +457,11 @@ async def create_skill(skill: SkillCreate):
 @app.delete("/skills/{skill_id}", dependencies=[Depends(verify_api_key)])
 async def delete_skill(skill_id: str):
     """Delete a skill."""
-    if agent_manager.delete_skill(skill_id):
-        return {"status": "deleted", "id": skill_id}
+    try:
+        if agent_manager.delete_skill(skill_id):
+            return {"status": "deleted", "id": skill_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     raise HTTPException(status_code=404, detail="Skill not found")
 
 
@@ -435,13 +487,17 @@ async def upload_skill(file: UploadFile = File(...)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process zip: {str(e)}")
+        logger.exception("Skill zip upload failed")
+        raise HTTPException(status_code=500, detail="Failed to process zip")
 
 
 @app.get("/skills/{skill_id}/download", dependencies=[Depends(verify_api_key)])
 async def download_skill(skill_id: str):
     """Download a skill as a zip file."""
-    zip_data = agent_manager.export_skill_zip(skill_id)
+    try:
+        zip_data = agent_manager.export_skill_zip(skill_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not zip_data:
         raise HTTPException(status_code=404, detail="Skill not found")
     
@@ -462,7 +518,10 @@ async def list_commands():
 @app.get("/commands/{command_id}", dependencies=[Depends(verify_api_key)])
 async def get_command(command_id: str):
     """Get a specific command's template."""
-    template = agent_manager.get_command(command_id)
+    try:
+        template = agent_manager.get_command(command_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not template:
         raise HTTPException(status_code=404, detail="Command not found")
     return {"id": command_id, "template": template}
@@ -474,15 +533,16 @@ async def create_command(cmd: CommandCreate):
     Create or update a command.
 
     Commands are prompt templates that can be invoked via the `command` parameter in /chat.
-    Use {{argument}} as a placeholder for the message content.
+    Pass arguments by invoking the slash command (e.g. `/{id} ...args`), then use `$ARGUMENTS` and/or `$1`, `$2` inside the command markdown.
 
     Example:
     ```
-    Analyze this transcript and summarize:
+    ---
+    argument-hint: [optional args]
+    ---
 
-    {{argument}}
-
-    Respond in JSON format.
+    Analyze and summarize:
+    $ARGUMENTS
     ```
     """
     try:
@@ -495,8 +555,11 @@ async def create_command(cmd: CommandCreate):
 @app.delete("/commands/{command_id}", dependencies=[Depends(verify_api_key)])
 async def delete_command(command_id: str):
     """Delete a command."""
-    if agent_manager.delete_command(command_id):
-        return {"status": "deleted", "id": command_id}
+    try:
+        if agent_manager.delete_command(command_id):
+            return {"status": "deleted", "id": command_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     raise HTTPException(status_code=404, detail="Command not found")
 
 

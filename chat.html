@@ -249,8 +249,9 @@
             display: flex;
             flex-direction: column;
             gap: 6px;
-            max-height: 150px;
+            max-height: 420px;
             overflow-y: auto;
+            padding: 4px;
         }
 
         .skill-item {
@@ -321,10 +322,13 @@
         }
 
         .skills-drop-zone {
-            border: 2px dashed transparent;
+            border: 2px dashed var(--border);
             border-radius: 8px;
             transition: all 0.2s;
             margin-top: 8px;
+            background: var(--bg-tertiary);
+            padding: 12px;
+            min-height: 220px;
         }
 
         .skills-drop-zone.drag-over {
@@ -362,6 +366,38 @@
             align-items: center;
             gap: 8px;
             width: 100%;
+        }
+
+        .skills-pane {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .skills-pane-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .skills-pane-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .skills-pane-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .skills-pane-actions {
+            display: flex;
+            gap: 8px;
         }
 
         /* Upload zone in modal */
@@ -1794,57 +1830,17 @@ Instructions for Claude on how to use this skill..."></textarea>
                         <span id="statusText">Not connected</span>
                     </div>
                 </div>
-
-                <!-- Skills Section -->
-                <div class="settings-section">
-                    <div class="settings-section-header">
-                        <h3>Skills</h3>
-                        <button class="add-skill-btn" onclick="openSkillModal()" title="Add Skill">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="12" y1="5" x2="12" y2="19"></line>
-                                <line x1="5" y1="12" x2="19" y2="12"></line>
-                            </svg>
-                        </button>
-                    </div>
-                    <div class="skills-drop-zone" id="skillsDropZone">
-                        <div class="skills-drop-hint">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 4px;">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="17 8 12 3 7 8"/>
-                                <line x1="12" y1="3" x2="12" y2="15"/>
-                            </svg>
-                            <div>Drop .zip to install</div>
-                        </div>
-                        <div class="skills-list" id="skillsList">
-                            <div class="no-skills">No skills installed<br><small>Drop a .zip file here</small></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Workspace Files Section -->
-                <div class="settings-section">
-                    <div class="settings-section-header">
-                        <h3>Workspace Files</h3>
-                        <button class="add-skill-btn" onclick="loadWorkspaceFiles()" title="Refresh">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="23 4 23 10 17 10"></polyline>
-                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                            </svg>
-                        </button>
-                    </div>
-                    <div class="skills-list" id="workspaceFiles">
-                        <div class="no-skills">No files yet<br><small>Agent creates files here</small></div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
 
-    <!-- Explorer Modal (Full-pane) - Artifacts & Sessions -->
+    <!-- Explorer Modal (Full-pane) - Skills, Artifacts, Commands & Sessions -->
     <div class="artifacts-modal-overlay" id="artifactsModal">
         <div class="artifacts-modal-header">
             <div class="explorer-tabs">
+                <button class="explorer-tab" id="tabSkills" onclick="switchExplorerTab('skills')">Skills</button>
                 <button class="explorer-tab active" id="tabArtifacts" onclick="switchExplorerTab('artifacts')">Artifacts</button>
+                <button class="explorer-tab" id="tabCommands" onclick="switchExplorerTab('commands')">Commands</button>
                 <button class="explorer-tab" id="tabSessions" onclick="switchExplorerTab('sessions')">Sessions</button>
             </div>
             <div style="display: flex; gap: 8px;">
@@ -1864,6 +1860,40 @@ Instructions for Claude on how to use this skill..."></textarea>
             </div>
         </div>
         <div class="artifacts-modal-body">
+            <!-- Skills Tab Content -->
+            <div id="skillsContent" style="display: none;">
+                <div class="skills-pane">
+                    <div class="skills-pane-header">
+                        <div>
+                            <div class="skills-pane-title">Skills</div>
+                            <div class="skills-pane-subtitle">Install, edit, download, or delete agent skills.</div>
+                        </div>
+                        <div class="skills-pane-actions">
+                            <button class="artifacts-refresh-btn" onclick="openSkillModal()">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                Add Skill
+                            </button>
+                        </div>
+                    </div>
+                    <div class="skills-drop-zone" id="skillsDropZone">
+                        <div class="skills-drop-hint">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 4px;">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <div>Drop .zip to install</div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Or click Add Skill to edit SKILL.md</div>
+                        </div>
+                        <div class="skills-list" id="skillsList">
+                            <div class="no-skills">No skills installed<br><small>Drop a .zip file or click Add Skill</small></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <!-- Artifacts Tab Content -->
             <div id="artifactsContent">
                 <div class="artifacts-empty">
@@ -1874,6 +1904,19 @@ Instructions for Claude on how to use this skill..."></textarea>
                     </div>
                     <h3>No artifacts yet</h3>
                     <p>Claude can save files to /artifacts/ to share them publicly.<br>They'll appear here with clickable links.</p>
+                </div>
+            </div>
+            <!-- Commands Tab Content -->
+            <div id="commandsContent" style="display: none;">
+                <div class="artifacts-empty">
+                    <div class="artifacts-empty-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <polyline points="4 17 10 11 4 5"/>
+                            <line x1="12" y1="19" x2="20" y2="19"/>
+                        </svg>
+                    </div>
+                    <h3>No commands yet</h3>
+                    <p>Slash commands will appear here.</p>
                 </div>
             </div>
             <!-- Sessions Tab Content -->
@@ -1908,7 +1951,6 @@ Instructions for Claude on how to use this skill..."></textarea>
             loadModel();
             loadChats();
             loadSkills();
-            loadWorkspaceFiles();
             setupEventListeners();
             autoResizeTextarea();
         });
@@ -2076,171 +2118,17 @@ Instructions for Claude on how to use this skill..."></textarea>
             }
         }
 
-        // Workspace file management
-        async function loadWorkspaceFiles() {
-            const apiKey = document.getElementById('apiKey').value;
-            if (!apiKey) {
-                renderWorkspaceFiles([]);
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/workspace`, {
-                    headers: { 'X-API-Key': apiKey }
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    renderWorkspaceFiles(data.files || []);
-                } else {
-                    renderWorkspaceFiles([]);
-                }
-            } catch {
-                renderWorkspaceFiles([]);
-            }
-        }
-
-        function renderWorkspaceFiles(files) {
-            const container = document.getElementById('workspaceFiles');
-            
-            if (files.length === 0) {
-                container.innerHTML = '<div class="no-skills">No files yet<br><small>Agent creates files here</small></div>';
-                return;
-            }
-
-            container.innerHTML = files.map(file => `
-                <div class="skill-item">
-                    <div class="skill-item-row">
-                        <div class="skill-item-info">
-                            <div class="skill-item-name">${file.is_dir ? '📁' : '📄'} ${escapeHtml(file.name)}</div>
-                            <div class="skill-item-desc">${file.size ? formatFileSize(file.size) : 'Directory'}</div>
-                        </div>
-                    </div>
-                    <div class="skill-item-actions">
-                        ${!file.is_dir ? `
-                            <button class="skill-item-btn" onclick="downloadWorkspaceFile('${escapeHtml(file.path)}')" title="Download">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7 10 12 15 17 10"/>
-                                    <line x1="12" y1="15" x2="12" y2="3"/>
-                                </svg>
-                            </button>
-                            <button class="skill-item-btn" onclick="openWorkspaceFile('${escapeHtml(file.path)}')" title="Open in new tab">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polyline points="7 17 17 7"></polyline>
-                                    <polyline points="7 7 17 7 17 17"></polyline>
-                                </svg>
-                            </button>
-                            <button class="skill-item-btn" onclick="copyWorkspaceLink('${escapeHtml(file.path)}')" title="Copy link">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M10 13a5 5 0 0 0 7.54.54l1.42-1.42a5 5 0 0 0-7.07-7.07L10.5 6"/>
-                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-1.42 1.42a5 5 0 0 0 7.07 7.07L13.5 18"/>
-                                </svg>
-                            </button>
-                            <button class="skill-item-btn" onclick="copyWorkspaceCurl('${escapeHtml(file.path)}')" title="Copy curl">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M3 5h12"/>
-                                    <path d="M9 3v2"/>
-                                    <path d="M9 14v2"/>
-                                    <path d="M3 16h12"/>
-                                    <path d="m16 21 2-2 2 2"/>
-                                    <path d="M18 17v4"/>
-                                </svg>
-                            </button>
-                        ` : ''}
-                        <button class="skill-item-btn delete" onclick="deleteWorkspaceFile('${escapeHtml(file.path)}')" title="Delete">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
         function formatFileSize(bytes) {
             if (bytes < 1024) return bytes + ' B';
             if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
             return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
         }
 
-        async function downloadWorkspaceFile(filePath) {
-            const apiKey = document.getElementById('apiKey').value;
-            if (!apiKey) return;
-
-            try {
-                const response = await fetch(`${API_URL}/workspace/${encodeURIComponent(filePath)}`, {
-                    headers: { 'X-API-Key': apiKey }
-                });
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filePath.split('/').pop();
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }
-            } catch (e) {
-                console.error('Download failed:', e);
-            }
-        }
-
-        function copyWorkspaceLink(filePath) {
-            const url = `${API_URL}/workspace/${encodeURIComponent(filePath)}`;
-            navigator.clipboard.writeText(url).catch(() => {});
-        }
-
-        async function openWorkspaceFile(filePath) {
-            const apiKey = document.getElementById('apiKey').value;
-            if (!apiKey) return;
-            const url = `${API_URL}/workspace/${encodeURIComponent(filePath)}`;
-            try {
-                const res = await fetch(url, { headers: { 'X-API-Key': apiKey } });
-                if (!res.ok) return;
-                const blob = await res.blob();
-                const blobUrl = URL.createObjectURL(blob);
-                window.open(blobUrl, '_blank');
-                setTimeout(() => URL.revokeObjectURL(blobUrl), 60 * 1000);
-            } catch (e) {
-                console.error('Open failed:', e);
-            }
-        }
-
-        function copyWorkspaceCurl(filePath) {
-            const apiKey = document.getElementById('apiKey').value;
-            if (!apiKey) return;
-            const url = `${API_URL}/workspace/${encodeURIComponent(filePath)}`;
-            const cmd = `curl -X GET \"${url}\" -H \"X-API-Key: ${apiKey}\" -o ${filePath.split('/').pop()}`;
-            navigator.clipboard.writeText(cmd).catch(() => {});
-        }
-
-        async function deleteWorkspaceFile(filePath) {
-            if (!confirm(`Delete ${filePath}?`)) return;
-            
-            const apiKey = document.getElementById('apiKey').value;
-            if (!apiKey) return;
-
-            try {
-                const response = await fetch(`${API_URL}/workspace/${encodeURIComponent(filePath)}`, {
-                    method: 'DELETE',
-                    headers: { 'X-API-Key': apiKey }
-                });
-                if (response.ok) {
-                    loadWorkspaceFiles();
-                }
-            } catch (e) {
-                console.error('Delete failed:', e);
-            }
-        }
-
         function renderSkills(skills) {
             const container = document.getElementById('skillsList');
             
             if (skills.length === 0) {
-                container.innerHTML = '<div class="no-skills">No skills installed<br><small>Drop a .zip file here</small></div>';
+                container.innerHTML = '<div class="no-skills">No skills installed<br><small>Drop a .zip file or click Add Skill</small></div>';
                 return;
             }
 
@@ -2430,7 +2318,7 @@ Instructions for Claude on how to use this skill..."></textarea>
         // Artifacts modal functions
         function openArtifactsModal() {
             document.getElementById('artifactsModal').classList.add('active');
-            loadArtifacts();
+            switchExplorerTab(currentExplorerTab);
         }
 
         function closeArtifactsModal() {
@@ -2440,7 +2328,7 @@ Instructions for Claude on how to use this skill..."></textarea>
         async function loadArtifacts() {
             const apiKey = document.getElementById('apiKey').value;
             if (!apiKey) {
-                renderArtifacts([]);
+                renderArtifactsEmpty();
                 return;
             }
 
@@ -2448,7 +2336,7 @@ Instructions for Claude on how to use this skill..."></textarea>
             contentEl.innerHTML = '<div class="artifacts-empty"><p>Loading...</p></div>';
 
             try {
-                // Fetch artifacts directory from workspace API
+                // Fetch only top-level artifacts directory (no recursion)
                 const response = await fetch(`${API_URL}/workspace?path=artifacts`, {
                     headers: { 'X-API-Key': apiKey }
                 });
@@ -2456,91 +2344,379 @@ Instructions for Claude on how to use this skill..."></textarea>
                 if (response.ok) {
                     const data = await response.json();
                     const files = data.files || [];
-
-                    // Recursively fetch subdirectory contents
-                    const artifactsTree = await buildArtifactsTree(files, 'artifacts', apiKey);
-                    renderArtifacts(artifactsTree);
+                    renderArtifactsList(files, 'artifacts');
                 } else {
-                    renderArtifacts([]);
+                    renderArtifactsEmpty();
                 }
             } catch (e) {
                 console.error('Failed to load artifacts:', e);
-                renderArtifacts([]);
+                renderArtifactsEmpty();
             }
         }
 
-        async function buildArtifactsTree(files, basePath, apiKey) {
-            const result = [];
+        function renderArtifactsEmpty() {
+            const contentEl = document.getElementById('artifactsContent');
+            contentEl.innerHTML = `
+                <div class="artifacts-empty">
+                    <div class="artifacts-empty-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </div>
+                    <h3>No artifacts yet</h3>
+                    <p>Claude can save files to /artifacts/ to share them publicly.<br>They'll appear here with clickable links.</p>
+                </div>
+            `;
+        }
 
+        function renderArtifactsList(files, basePath) {
+            const contentEl = document.getElementById('artifactsContent');
+
+            if (files.length === 0) {
+                renderArtifactsEmpty();
+                return;
+            }
+
+            let html = '<div class="artifacts-tree">';
             for (const file of files) {
-                const fullPath = basePath ? `${basePath}/${file.name}` : file.name;
-
+                const fullPath = `${basePath}/${file.name}`;
                 if (file.is_dir) {
-                    // Fetch subdirectory contents
+                    // Folder - clickable to expand (lazy load)
+                    const folderId = `folder-${fullPath.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    html += `
+                        <div class="artifacts-folder">
+                            <div class="artifacts-folder-header" onclick="toggleArtifactFolder('${escapeHtml(fullPath)}', '${folderId}')" style="cursor: pointer;">
+                                <svg class="folder-chevron" id="chevron-${folderId}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                </svg>
+                                <span class="artifacts-folder-name">${escapeHtml(file.name)}</span>
+                            </div>
+                            <div class="artifacts-folder-contents" id="${folderId}" style="display: none;"></div>
+                        </div>
+                    `;
+                } else {
+                    // File
+                    const publicPath = fullPath.replace(/^artifacts\//, '');
+                    const publicUrl = `${API_URL}/artifacts/${publicPath}`;
+                    html += renderArtifactFile(file.name, publicUrl);
+                }
+            }
+            html += '</div>';
+            contentEl.innerHTML = html;
+        }
+
+        async function toggleArtifactFolder(path, folderId) {
+            const contentsEl = document.getElementById(folderId);
+            const chevronEl = document.getElementById(`chevron-${folderId}`);
+
+            if (contentsEl.style.display === 'none') {
+                // Expand - load contents if not already loaded
+                contentsEl.style.display = 'block';
+                chevronEl.style.transform = 'rotate(90deg)';
+
+                if (contentsEl.innerHTML === '') {
+                    contentsEl.innerHTML = '<div style="padding: 8px 0 8px 20px; color: #888;">Loading...</div>';
+
+                    const apiKey = document.getElementById('apiKey').value;
                     try {
-                        const response = await fetch(`${API_URL}/workspace?path=${encodeURIComponent(fullPath)}`, {
+                        const response = await fetch(`${API_URL}/workspace?path=${encodeURIComponent(path)}`, {
                             headers: { 'X-API-Key': apiKey }
                         });
                         if (response.ok) {
                             const data = await response.json();
-                            const children = await buildArtifactsTree(data.files || [], fullPath, apiKey);
-                            result.push({
-                                name: file.name,
-                                path: fullPath,
-                                is_dir: true,
-                                children: children
-                            });
+                            const files = data.files || [];
+                            contentsEl.innerHTML = renderArtifactFolderContents(files, path);
+                        } else {
+                            contentsEl.innerHTML = '<div style="padding: 8px 0 8px 20px; color: #f66;">Failed to load</div>';
                         }
                     } catch (e) {
-                        console.error('Failed to fetch subdirectory:', e);
+                        contentsEl.innerHTML = '<div style="padding: 8px 0 8px 20px; color: #f66;">Failed to load</div>';
                     }
-                } else {
-                    result.push({
-                        name: file.name,
-                        path: fullPath,
-                        is_dir: false,
-                        size: file.size
-                    });
                 }
+            } else {
+                // Collapse
+                contentsEl.style.display = 'none';
+                chevronEl.style.transform = 'rotate(0deg)';
             }
-
-            return result;
         }
 
-        function renderArtifacts(tree) {
-            const contentEl = document.getElementById('artifactsContent');
+        function renderArtifactFolderContents(files, basePath) {
+            if (files.length === 0) {
+                return '<div style="padding: 8px 0 8px 20px; color: #888;">(empty)</div>';
+            }
 
-            // Flatten tree and count total files
-            const allFiles = flattenArtifactsTree(tree);
-
-            if (allFiles.length === 0) {
-                contentEl.innerHTML = `
-                    <div class="artifacts-empty">
-                        <div class="artifacts-empty-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                            </svg>
+            let html = '';
+            for (const file of files) {
+                const fullPath = `${basePath}/${file.name}`;
+                if (file.is_dir) {
+                    const folderId = `folder-${fullPath.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    html += `
+                        <div class="artifacts-folder" style="margin-left: 20px;">
+                            <div class="artifacts-folder-header" onclick="toggleArtifactFolder('${escapeHtml(fullPath)}', '${folderId}')" style="cursor: pointer;">
+                                <svg class="folder-chevron" id="chevron-${folderId}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                </svg>
+                                <span class="artifacts-folder-name">${escapeHtml(file.name)}</span>
+                            </div>
+                            <div class="artifacts-folder-contents" id="${folderId}" style="display: none;"></div>
                         </div>
-                        <h3>No artifacts yet</h3>
-                        <p>Claude can save files to /artifacts/ to share them publicly.<br>They'll appear here with clickable links.</p>
+                    `;
+                } else {
+                    const publicPath = fullPath.replace(/^artifacts\//, '');
+                    const publicUrl = `${API_URL}/artifacts/${publicPath}`;
+                    html += `<div style="margin-left: 20px;">${renderArtifactFile(file.name, publicUrl)}</div>`;
+                }
+            }
+            return html;
+        }
+
+        function renderArtifactFile(name, publicUrl) {
+            return `
+                <div class="artifacts-file">
+                    <div class="artifacts-file-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
                     </div>
-                `;
+                    <div class="artifacts-file-info">
+                        <a href="${escapeHtml(publicUrl)}" target="_blank" rel="noopener" class="artifacts-file-name">${escapeHtml(name)}</a>
+                        <div class="artifacts-file-url">${escapeHtml(publicUrl)}</div>
+                    </div>
+                    <div class="artifacts-file-actions">
+                        <button class="artifacts-file-btn" onclick="copyToClipboard('${escapeHtml(publicUrl)}')" title="Copy URL">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                        </button>
+                        <button class="artifacts-file-btn" onclick="window.open('${escapeHtml(publicUrl)}', '_blank')" title="Open">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Commands tab + text editor
+        let currentEditingFilePath = null;
+
+        async function loadCommands() {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) {
+                renderCommandsEmpty();
                 return;
             }
 
-            contentEl.innerHTML = `<div class="artifacts-tree">${renderArtifactsTree(tree)}</div>`;
+            const contentEl = document.getElementById('commandsContent');
+            contentEl.innerHTML = '<div class="artifacts-empty"><p>Loading...</p></div>';
+
+            try {
+                const response = await fetch(`${API_URL}/commands`, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    renderCommandsList(data.commands || []);
+                } else {
+                    renderCommandsEmpty();
+                }
+            } catch (e) {
+                console.error('Failed to load commands:', e);
+                renderCommandsEmpty();
+            }
+        }
+
+        function renderCommandsEmpty() {
+            const contentEl = document.getElementById('commandsContent');
+            contentEl.innerHTML = `
+                <div class="artifacts-empty">
+                    <div class="artifacts-empty-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <polyline points="4 17 10 11 4 5"/>
+                            <line x1="12" y1="19" x2="20" y2="19"/>
+                        </svg>
+                    </div>
+                    <h3>No commands yet</h3>
+                    <p>Slash commands can be created via the API or by editing a file in .claude/commands/</p>
+                    <button class="artifacts-refresh-btn" style="margin-top: 12px;" onclick="promptOpenWorkspaceFile()">Open file path</button>
+                </div>
+            `;
+        }
+
+        function renderCommandsList(commands) {
+            const contentEl = document.getElementById('commandsContent');
+
+            if (commands.length === 0) {
+                renderCommandsEmpty();
+                return;
+            }
+
+            let html = `
+                <div class="skills-pane-header" style="margin-bottom: 12px;">
+                    <div>
+                        <div class="skills-pane-title">Commands</div>
+                        <div class="skills-pane-subtitle">Edit slash command templates stored under .claude/commands/</div>
+                    </div>
+                    <div class="skills-pane-actions">
+                        <button class="artifacts-refresh-btn" onclick="promptOpenWorkspaceFile()">Open file path</button>
+                    </div>
+                </div>
+                <div class="artifacts-tree">
+            `;
+
+            for (const cmd of commands) {
+                const workspacePath = cmd.relative_path || toWorkspaceRelative(cmd.path) || `.claude/commands/${cmd.id}.md`;
+                html += `
+                    <div class="artifacts-file">
+                        <div class="artifacts-file-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="4 17 10 11 4 5"/>
+                                <line x1="12" y1="19" x2="20" y2="19"/>
+                            </svg>
+                        </div>
+                        <div class="artifacts-file-info">
+                            <span class="artifacts-file-name">/${escapeHtml(cmd.id)}</span>
+                            <div class="artifacts-file-url">${escapeHtml(workspacePath)}</div>
+                        </div>
+                        <div class="artifacts-file-actions">
+                            <button class="artifacts-file-btn" onclick="openCommandEditor('${escapeHtml(cmd.id)}', '${encodeURIComponent(workspacePath)}')" title="Edit">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="4 17 10 11 4 5"/>
+                                    <line x1="12" y1="19" x2="20" y2="19"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+            contentEl.innerHTML = html;
+        }
+
+        function toWorkspaceRelative(path) {
+            if (!path) return '';
+            const marker = "/workspace/";
+            const idx = path.indexOf(marker);
+            if (idx !== -1) {
+                return path.slice(idx + marker.length);
+            }
+            return path.replace(/^\/+/, "");
+        }
+
+        function promptOpenWorkspaceFile() {
+            const input = prompt("Enter workspace-relative path to edit (e.g. .claude/commands/foo.md):");
+            if (input) {
+                openTextEditor(input.trim(), input.trim());
+            }
+        }
+
+        async function openCommandEditor(cmdId, encodedPath) {
+            const path = decodeURIComponent(encodedPath);
+            openTextEditor(path, `/${cmdId}`);
+        }
+
+        async function openTextEditor(path, title) {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) {
+                alert('Please enter your API key first');
+                return;
+            }
+
+            currentEditingFilePath = path;
+            const contentEl = document.getElementById('commandsContent');
+            contentEl.innerHTML = '<div class="artifacts-empty"><p>Loading file...</p></div>';
+
+            try {
+                const response = await fetch(`${API_URL}/workspace/${encodeURIComponent(path)}`, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+
+                if (!response.ok) {
+                    contentEl.innerHTML = '<div class="artifacts-empty"><h3>Failed to load file</h3></div>';
+                    return;
+                }
+
+                const text = await response.text();
+
+                contentEl.innerHTML = `
+                    <div class="skills-pane">
+                        <div class="skills-pane-header">
+                            <div>
+                                <div class="skills-pane-title">Editing ${escapeHtml(title)}</div>
+                                <div class="skills-pane-subtitle">${escapeHtml(currentEditingFilePath)}</div>
+                            </div>
+                            <div class="skills-pane-actions">
+                                <button class="artifacts-refresh-btn" onclick="saveTextEditor()">Save</button>
+                                <button class="artifacts-refresh-btn" onclick="loadCommands()">Back</button>
+                            </div>
+                        </div>
+                        <textarea id="textEditorArea" class="form-input form-textarea" style="min-height: 320px;"></textarea>
+                        <div id="textEditorStatus" class="form-hint" style="margin-top: 8px;"></div>
+                    </div>
+                `;
+
+                const textArea = document.getElementById('textEditorArea');
+                textArea.value = text;
+            } catch (e) {
+                contentEl.innerHTML = '<div class="artifacts-empty"><h3>Failed to load file</h3></div>';
+            }
+        }
+
+        async function saveTextEditor() {
+            if (!currentEditingFilePath) return;
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) {
+                alert('Please enter your API key first');
+                return;
+            }
+
+            const textArea = document.getElementById('textEditorArea');
+            const statusEl = document.getElementById('textEditorStatus');
+            if (!textArea) return;
+
+            statusEl.textContent = 'Saving...';
+
+            try {
+                const response = await fetch(`${API_URL}/workspace/${encodeURIComponent(currentEditingFilePath)}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify({ content: textArea.value })
+                });
+
+                if (response.ok) {
+                    statusEl.textContent = 'Saved ✓';
+                    loadCommands();
+                } else {
+                    const data = await response.json();
+                    statusEl.textContent = `Save failed: ${data.detail || 'Unknown error'}`;
+                }
+            } catch (e) {
+                statusEl.textContent = `Save failed: ${e.message}`;
+            }
+        }
+
+        // Legacy functions for backwards compatibility (removed recursive loading)
+        function renderArtifacts(tree) {
+            renderArtifactsEmpty();
         }
 
         function flattenArtifactsTree(tree) {
-            let files = [];
-            for (const item of tree) {
-                if (item.is_dir && item.children) {
-                    files = files.concat(flattenArtifactsTree(item.children));
-                } else if (!item.is_dir) {
-                    files.push(item);
-                }
-            }
-            return files;
+            return [];
         }
 
         function renderArtifactsTree(tree, depth = 0) {
@@ -2548,7 +2724,7 @@ Instructions for Claude on how to use this skill..."></textarea>
 
             for (const item of tree) {
                 if (item.is_dir) {
-                    const fileCount = flattenArtifactsTree(item.children || []).length;
+                    const fileCount = 0;
                     html += `
                         <div class="artifacts-folder">
                             <div class="artifacts-folder-header">
@@ -2618,24 +2794,36 @@ Instructions for Claude on how to use this skill..."></textarea>
             currentViewingSession = null;
 
             // Update tab buttons
+            document.getElementById('tabSkills').classList.toggle('active', tab === 'skills');
             document.getElementById('tabArtifacts').classList.toggle('active', tab === 'artifacts');
+            document.getElementById('tabCommands').classList.toggle('active', tab === 'commands');
             document.getElementById('tabSessions').classList.toggle('active', tab === 'sessions');
 
             // Show/hide content
+            document.getElementById('skillsContent').style.display = tab === 'skills' ? 'block' : 'none';
             document.getElementById('artifactsContent').style.display = tab === 'artifacts' ? 'block' : 'none';
+            document.getElementById('commandsContent').style.display = tab === 'commands' ? 'block' : 'none';
             document.getElementById('sessionsContent').style.display = tab === 'sessions' ? 'block' : 'none';
 
             // Load content
-            if (tab === 'artifacts') {
+            if (tab === 'skills') {
+                loadSkills();
+            } else if (tab === 'artifacts') {
                 loadArtifacts();
+            } else if (tab === 'commands') {
+                loadCommands();
             } else {
                 loadSessions();
             }
         }
 
         function refreshCurrentTab() {
-            if (currentExplorerTab === 'artifacts') {
+            if (currentExplorerTab === 'skills') {
+                loadSkills();
+            } else if (currentExplorerTab === 'artifacts') {
                 loadArtifacts();
+            } else if (currentExplorerTab === 'commands') {
+                loadCommands();
             } else {
                 if (currentViewingSession) {
                     loadSessionDetail(currentViewingSession);
@@ -2936,7 +3124,6 @@ Instructions for Claude on how to use this skill..."></textarea>
                     statusEl.className = 'api-status connected';
                     statusText.textContent = 'Connected';
                     loadSkills();
-                    loadWorkspaceFiles();
                 } else {
                     statusEl.className = 'api-status disconnected';
                     statusText.textContent = 'Connection failed';
@@ -3311,8 +3498,10 @@ Instructions for Claude on how to use this skill..."></textarea>
                                         tools_used: toolsUsed,
                                         model: selectedModel 
                                     });
-                                    // Refresh workspace files in case agent created new files
-                                    loadWorkspaceFiles();
+                                    // Refresh explorer tab if it's open (files may have changed)
+                                    if (document.getElementById('artifactsModal').classList.contains('active')) {
+                                        refreshCurrentTab();
+                                    }
                                 } else if (event.type === 'error') {
                                     contentEl.innerHTML = formatContent(`Error: ${event.error}`);
                                 }
@@ -3451,4 +3640,3 @@ Instructions for Claude on how to use this skill..."></textarea>
     </script>
 </body>
 </html>
-

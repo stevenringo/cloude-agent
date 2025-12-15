@@ -15,6 +15,19 @@ mkdir -p "$COMMANDS_DIR"
 mkdir -p "$ARTIFACTS_DIR"
 mkdir -p "$CLAUDE_CONFIG_DIR"
 
+# Seed default commands/skills from the image into the volume on first run.
+# This keeps "one-click deploy" usable while still allowing runtime edits on the volume.
+DEFAULT_COMMANDS_SRC="/app/.claude/commands"
+DEFAULT_SKILLS_SRC="/app/.claude/skills"
+
+if [ -d "$DEFAULT_COMMANDS_SRC" ] && [ -z "$(ls -A "$COMMANDS_DIR" 2>/dev/null || true)" ]; then
+    cp -n "$DEFAULT_COMMANDS_SRC"/*.md "$COMMANDS_DIR"/ 2>/dev/null || true
+fi
+
+if [ -d "$DEFAULT_SKILLS_SRC" ] && [ -z "$(ls -A "$SKILLS_DIR" 2>/dev/null || true)" ]; then
+    cp -R -n "$DEFAULT_SKILLS_SRC"/* "$SKILLS_DIR"/ 2>/dev/null || true
+fi
+
 # Make all skill scripts executable
 find "$SKILLS_DIR" -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
 find "$SKILLS_DIR" -name "*.py" -exec chmod +x {} \; 2>/dev/null || true
@@ -43,7 +56,6 @@ else
 
     exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
 fi
-
 
 
 

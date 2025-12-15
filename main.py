@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional
-from agent_manager import AgentManager
+from agent_manager import AgentManager, WORKSPACE_DIR
 
 
 # Config
@@ -264,7 +264,7 @@ async def health():
 
 
 # Public artifacts endpoint (no auth required for file access, but no directory listing)
-ARTIFACTS_DIR = os.environ.get("ARTIFACTS_DIR", "/app/workspace/artifacts")
+ARTIFACTS_DIR = os.environ.get("ARTIFACTS_DIR", str(WORKSPACE_DIR / "artifacts"))
 
 
 @app.get("/artifacts/{file_path:path}")

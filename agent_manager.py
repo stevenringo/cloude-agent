@@ -6,14 +6,30 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Any
-from claude_code_sdk import ClaudeSDKClient, ClaudeCodeOptions
+from claude_code_sdk import ClaudeCodeOptions, query
 from claude_code_sdk.types import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock, SystemMessage, UserMessage
 import redis.asyncio as redis
 
 # Workspace directory for agent file operations
 # Can be overridden via WORKSPACE_DIR env var (for Railway volume mount)
-WORKSPACE_DIR = Path(os.environ.get("WORKSPACE_DIR", "/app/workspace"))
-WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+def _resolve_workspace_dir() -> Path:
+    configured = os.environ.get("WORKSPACE_DIR")
+    if configured:
+        workspace_dir = Path(configured)
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        return workspace_dir
+
+    # Railway/Docker default.
+    if Path("/app").exists():
+        workspace_dir = Path("/app/workspace")
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        return workspace_dir
+
+    # Local dev default: repo root (this file's directory), which also contains `.claude/`.
+    return Path(__file__).resolve().parent
+
+
+WORKSPACE_DIR = _resolve_workspace_dir()
 
 # Skills directory - on the volume for runtime management
 # Can be overridden via SKILLS_DIR env var
@@ -38,14 +54,31 @@ class AgentManager:
             return json.loads(data)
         return None
     
-    async def _store_session(self, user_session_id: str, conversation_summary: str = ""):
+    async def _store_session(
+        self,
+        user_session_id: str,
+        *,
+        claude_session_id: Optional[str] = None,
+        conversation_summary: str = "",
+    ):
+        existing = await self._get_stored_session(user_session_id)
+        created = existing.get("created") if existing else None
+        if not created:
+            created = datetime.utcnow().isoformat()
+
+        summary = conversation_summary or (existing.get("summary") if existing else "") or ""
+
+        record: dict[str, Any] = {
+            "created": created,
+            "last_active": datetime.utcnow().isoformat(),
+            "summary": summary,
+        }
+        existing_claude_session_id = (existing or {}).get("claude_session_id")
+        record["claude_session_id"] = claude_session_id or existing_claude_session_id
+
         await self.redis.set(
             f"session:{user_session_id}",
-            json.dumps({
-                "created": datetime.utcnow().isoformat(),
-                "last_active": datetime.utcnow().isoformat(),
-                "summary": conversation_summary
-            }),
+            json.dumps(record),
             ex=86400 * 7  # 7 day expiry
         )
     
@@ -84,26 +117,19 @@ class AgentManager:
         context: Optional[dict] = None,
         model: Optional[str] = None
     ) -> dict:
-        # Check for existing session
         stored = await self._get_stored_session(user_session_id)
-        history = await self._get_conversation_history(user_session_id)
-        
-        # Build the prompt with context
+
+        raw_message = message.strip()
+        is_slash_command = raw_message.startswith("/")
+
+        # Build the prompt with per-request context, but don't break slash command preprocessing.
         text_content = message
-        if context:
+        if context and not is_slash_command:
             source = context.get("source", "unknown")
             user_name = context.get("user_name", "User")
             text_content = f"[Context: {user_name} via {source}]\n\n{message}"
         
-        # If we have history, include it as context
-        if history:
-            history_text = "\n".join([
-                f"{'User' if h['role'] == 'user' else 'Assistant'}: {h['content']}" 
-                for h in history[-10:]  # Last 10 messages for context
-            ])
-            text_content = f"Previous conversation:\n{history_text}\n\nNew message: {text_content}"
-        
-        # Build message content - either string or list with images
+        # Build message content - either string or list with images.
         if images:
             # Build content array with text and images
             content: Any = [{"type": "text", "text": text_content}]
@@ -121,58 +147,75 @@ class AgentManager:
         
         tools_used = []
         response_parts = []
-        
-        # Message generator for ClaudeSDKClient
-        async def message_generator():
-            yield {
-                "type": "user",
-                "message": {
-                    "role": "user",
-                    "content": content
-                }
-            }
-        
-        # Use ClaudeSDKClient for proper message handling including images
+
+        # Preserve Claude Code session so slash commands (/clear, /compact, etc) work as expected.
+        resume_session_id = (stored or {}).get("claude_session_id")
+
         # Default to acceptEdits (safer), can override to bypassPermissions via API
         permission_mode = context.get("permission_mode", "acceptEdits") if context else "acceptEdits"
         
-        # Set working directory to workspace for file operations
+        # Set working directory to workspace for file operations and for discovering .claude/commands/ etc.
         options = ClaudeCodeOptions(
             permission_mode=permission_mode,
-            cwd=str(WORKSPACE_DIR)
+            cwd=str(WORKSPACE_DIR),
+            model=model,
+            resume=resume_session_id,
         )
         
-        async with ClaudeSDKClient(options) as client:
-            # Send the message via generator
-            await client.query(message_generator())
-            
-            # Process responses
-            async for msg in client.receive_response():
-                if isinstance(msg, AssistantMessage):
-                    for block in msg.content:
-                        if isinstance(block, TextBlock):
-                            response_parts.append(block.text)
-                        elif isinstance(block, ToolUseBlock):
-                            tools_used.append(block.name)
+        # query() enables Claude Code preprocessing for slash commands and !` bash execution.
+        prompt: str | Any
+        if images:
+            async def message_generator():
+                yield {
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": content
+                    }
+                }
+            prompt = message_generator()
+        else:
+            prompt = text_content
+
+        claude_session_id: Optional[str] = None
+        usage: dict[str, Any] = {}
+
+        async for msg in query(prompt=prompt, options=options):
+            if isinstance(msg, SystemMessage):
+                if msg.subtype == "init":
+                    claude_session_id = msg.data.get("session_id") or claude_session_id
+            elif isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        response_parts.append(block.text)
+                    elif isinstance(block, ToolUseBlock):
+                        tools_used.append(block.name)
+            elif isinstance(msg, ResultMessage):
+                claude_session_id = msg.session_id or claude_session_id
+                usage = msg.usage or {"num_turns": msg.num_turns}
+                if usage.get("num_turns") is None:
+                    usage["num_turns"] = msg.num_turns
         
         response_text = "".join(response_parts)
         
-        # Update conversation history
+        # Update server-side metadata (and keep a lightweight transcript for UI/debugging).
+        history = await self._get_conversation_history(user_session_id)
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": response_text})
         await self._store_conversation_history(user_session_id, history)
-        
-        # Update session
-        await self._store_session(user_session_id)
+
+        # If user explicitly cleared context, also clear our local transcript.
+        if raw_message.startswith("/clear"):
+            await self.redis.delete(f"history:{user_session_id}")
+
+        await self._store_session(user_session_id, claude_session_id=claude_session_id)
         await self._update_session_activity(user_session_id)
         
         return {
             "session_id": user_session_id,
             "response": response_text,
             "tools_used": list(set(tools_used)),
-            "usage": {
-                "num_turns": len(history) // 2
-            }
+            "usage": usage or {"num_turns": len(history) // 2},
         }
     
     async def chat_stream(
@@ -184,24 +227,17 @@ class AgentManager:
         model: Optional[str] = None
     ):
         """Stream chat responses as they're generated."""
-        # Check for existing session
         stored = await self._get_stored_session(user_session_id)
-        history = await self._get_conversation_history(user_session_id)
-        
-        # Build the prompt with context
+
+        raw_message = message.strip()
+        is_slash_command = raw_message.startswith("/")
+
+        # Build the prompt with per-request context, but don't break slash command preprocessing.
         text_content = message
-        if context:
+        if context and not is_slash_command:
             source = context.get("source", "unknown")
             user_name = context.get("user_name", "User")
             text_content = f"[Context: {user_name} via {source}]\n\n{message}"
-        
-        # If we have history, include it as context
-        if history:
-            history_text = "\n".join([
-                f"{'User' if h['role'] == 'user' else 'Assistant'}: {h['content']}" 
-                for h in history[-10:]
-            ])
-            text_content = f"Previous conversation:\n{history_text}\n\nNew message: {text_content}"
         
         # Build message content
         if images:
@@ -218,64 +254,82 @@ class AgentManager:
         else:
             content = text_content
         
-        # Message generator
-        async def message_generator():
-            yield {
-                "type": "user",
-                "message": {
-                    "role": "user",
-                    "content": content
-                }
-            }
-        
         tools_used = []
         response_parts = []
+
+        # Preserve Claude Code session so slash commands (/clear, /compact, etc) work as expected.
+        resume_session_id = (stored or {}).get("claude_session_id")
         
         # Default to acceptEdits (safer), can override to bypassPermissions via API
         permission_mode = context.get("permission_mode", "acceptEdits") if context else "acceptEdits"
         
-        # Set working directory to workspace for file operations
+        # Set working directory to workspace for file operations and for discovering .claude/commands/ etc.
         options = ClaudeCodeOptions(
             permission_mode=permission_mode,
-            cwd=str(WORKSPACE_DIR)
+            cwd=str(WORKSPACE_DIR),
+            model=model,
+            resume=resume_session_id,
         )
         
         # Signal that we're starting
         yield {"type": "status", "status": "connecting"}
-        
-        async with ClaudeSDKClient(options) as client:
-            yield {"type": "status", "status": "sending"}
-            await client.query(message_generator())
-            yield {"type": "status", "status": "processing"}
-            
-            async for msg in client.receive_response():
-                if isinstance(msg, SystemMessage):
-                    # System is ready
+
+        yield {"type": "status", "status": "sending"}
+        yield {"type": "status", "status": "processing"}
+
+        # query() enables Claude Code preprocessing for slash commands and !` bash execution.
+        prompt: str | Any
+        if images:
+            async def message_generator():
+                yield {
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": content
+                    }
+                }
+            prompt = message_generator()
+        else:
+            prompt = text_content
+
+        claude_session_id: Optional[str] = None
+        usage: dict[str, Any] = {}
+
+        async for msg in query(prompt=prompt, options=options):
+            if isinstance(msg, SystemMessage):
+                if msg.subtype == "init":
+                    claude_session_id = msg.data.get("session_id") or claude_session_id
                     yield {"type": "status", "status": "ready"}
-                elif isinstance(msg, AssistantMessage):
-                    for block in msg.content:
-                        if isinstance(block, TextBlock):
-                            response_parts.append(block.text)
-                            # Yield text chunk
-                            yield {"type": "text", "text": block.text}
-                        elif isinstance(block, ToolUseBlock):
-                            tools_used.append(block.name)
-                            # Yield tool use with more detail
-                            yield {"type": "tool", "name": block.name, "status": "started"}
-                elif isinstance(msg, UserMessage):
-                    # Tool result came back
-                    if tools_used:
-                        yield {"type": "tool", "name": tools_used[-1], "status": "completed"}
+            elif isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        response_parts.append(block.text)
+                        yield {"type": "text", "text": block.text}
+                    elif isinstance(block, ToolUseBlock):
+                        tools_used.append(block.name)
+                        yield {"type": "tool", "name": block.name, "status": "started"}
+            elif isinstance(msg, UserMessage):
+                if tools_used:
+                    yield {"type": "tool", "name": tools_used[-1], "status": "completed"}
+            elif isinstance(msg, ResultMessage):
+                claude_session_id = msg.session_id or claude_session_id
+                usage = msg.usage or {"num_turns": msg.num_turns}
+                if usage.get("num_turns") is None:
+                    usage["num_turns"] = msg.num_turns
         
         response_text = "".join(response_parts)
         
-        # Update conversation history
+        # Update server-side metadata (and keep a lightweight transcript for UI/debugging).
+        history = await self._get_conversation_history(user_session_id)
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": response_text})
         await self._store_conversation_history(user_session_id, history)
-        
-        # Update session
-        await self._store_session(user_session_id)
+
+        # If user explicitly cleared context, also clear our local transcript.
+        if raw_message.startswith("/clear"):
+            await self.redis.delete(f"history:{user_session_id}")
+
+        await self._store_session(user_session_id, claude_session_id=claude_session_id)
         await self._update_session_activity(user_session_id)
         
         # Yield final done event
@@ -283,7 +337,7 @@ class AgentManager:
             "type": "done",
             "session_id": user_session_id,
             "tools_used": list(set(tools_used)),
-            "usage": {"num_turns": len(history) // 2}
+            "usage": usage or {"num_turns": len(history) // 2},
         }
     
     # Skill management methods

@@ -172,8 +172,11 @@ class AgentManager:
         tools_used = []
         response_parts = []
 
-        # Preserve Claude Code session so slash commands (/clear, /compact, etc) work as expected.
-        resume_session_id = (stored or {}).get("claude_session_id")
+        # Preserve Claude Code session for interactive chat, but avoid resuming for webhook calls
+        # (webhooks are typically stateless and should always pick up latest volume commands/cwd).
+        resume_session_id: Optional[str] = None
+        if (context or {}).get("source") != "webhook":
+            resume_session_id = (stored or {}).get("claude_session_id")
 
         # Default to acceptEdits (safer), can override to bypassPermissions via API
         permission_mode = context.get("permission_mode", "acceptEdits") if context else "acceptEdits"
@@ -288,8 +291,11 @@ class AgentManager:
         tools_used = []
         response_parts = []
 
-        # Preserve Claude Code session so slash commands (/clear, /compact, etc) work as expected.
-        resume_session_id = (stored or {}).get("claude_session_id")
+        # Preserve Claude Code session for interactive chat, but avoid resuming for webhook calls
+        # (webhooks are typically stateless and should always pick up latest volume commands/cwd).
+        resume_session_id: Optional[str] = None
+        if (context or {}).get("source") != "webhook":
+            resume_session_id = (stored or {}).get("claude_session_id")
         
         # Default to acceptEdits (safer), can override to bypassPermissions via API
         permission_mode = context.get("permission_mode", "acceptEdits") if context else "acceptEdits"

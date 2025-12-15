@@ -171,7 +171,9 @@ async def webhook(
 
     # Map session_id from body using query param as field name
     session_id_field = session_id or "session_id"
-    actual_session_id = body.get(session_id_field) or body.get("id") or body.get("session_id") or "webhook-session"
+    actual_session_id = body.get(session_id_field) or body.get("id") or body.get("session_id")
+    if not actual_session_id:
+        actual_session_id = f"webhook-{int(time.time() * 1000)}"
 
     # Map message from body using query param as field name
     message_field = message or "message"

@@ -1,13 +1,32 @@
-# Clawed (Claude Agent SDK API + Web Chat)
+# Cloude ☁️ Agent
 
-A FastAPI-based API plus single-page chat UI for a Claude Code agent that can chat, use tools, manage skills, and read/write files on a Railway-mounted workspace volume with Redis volume for chat persistence.
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/TEMPLATE_ID)
+
+Deploy the Claude Code agent to the cloud. Give it a workspace to work with files. Load up skills and commands to extend its capabilities. Invoke via API or webhooks.
+
+One-click template deploy on Railway. Comes with a single-page chat app for interacting with the agent and managing files in the workspace.
+
+## Background
+
+Claude Code is an amazing coding agent and, iykyk, it's actually a fanastic general purpose agent harness. With the Claude Agent SDK, we now have programmatic access. This little project helps deploy the SDK to the cloud and makes it available via API and webhook.
+
+Simply add your preferred skills and slash commands to the workspace and you have a custom agent available 24x7 in the cloud.
+
+Deploy on Railway via a one click template deploy. Comes with a Claude.com style single-page chat UI for interacting with the agent and working with files in the workspace.
+
+## Requirements
+- Railway Account
+- Anthropic API Key
+
 
 ## Features
-- Chat API with streaming (`/chat/stream`) and model selection.
+- FastAPI-based API for interacting with the agent.
+- REDIS for session persistence.
+- Chat API with streaming (`/chat/stream`) via SSE and model selection.
 - File-aware agent: reads/writes in `/app/workspace` (Railway volume-backed).
 - Skill management: list/get/add/delete/upload/download skills.
-- Web chat UI (`chat.html`): sidebar for model choice, skills, workspace files; drag/drop skill zips; streaming responses; one-click open/download/curl for files.
-- Permissions modes: default is `acceptEdits`; toggle `bypassPermissions` in UI.
+- Web chat UI (`chat.html`) for easy interaction with the agent and accessing the artifacts it generates.
+- Permissions modes: default is `acceptEdits`; toggle `bypassPermissions` in UI (skip dangerously).
 
 ## API
 - `POST /chat` — non-streaming chat
@@ -28,28 +47,13 @@ A FastAPI-based API plus single-page chat UI for a Claude Code agent that can ch
 - `GET /health` — health check
 
 ## Auth
-- All endpoints except `/health` require authentication (set via `API_KEY` env).
-- **Header (preferred):** `X-API-Key: your-key`
-- **Query param (webhooks only):** `?api_key=your-key`
-
-Startup guardrails:
-- `API_KEY` is required at startup.
-
-## Security Notes
-- Don’t commit secrets: keep API keys in env vars (e.g. `.env`, Railway variables). This repo ignores `.env` and `.claude/settings.local.json`.
-- If you ever committed an API key, rotate it (and consider rewriting git history if the repo is public).
-
-## Permissions Modes
-- `default` — standard checks
-- `acceptEdits` (default) — auto-approve file edits/fs ops
-- `bypassPermissions` — auto-approve all tools (requires non-root; we run as `appuser`)
-Pass via `context.permission_mode` in `/chat` or toggle in the UI.
-`bypassPermissions` is disabled by default; enable it by setting `ALLOW_BYPASS_PERMISSIONS=1`.
+- Set your ANTHROPIC_API_KEY in the Railway environment variables - this enables the Claude Agent to use the Anthropic LLM models.
+- Create your own API KEY for authentication - this is used to authenticate requests to the API.
 
 ## Workspace Files (volume)
 - Mounted at `/app/workspace` (Railway volume).
 - Agent works in this directory (SDK `cwd` set).
-- UI “Workspace Files” shows new files after each run with buttons: Open, Download, Copy link, Copy curl.
+- Chat UI (chat.html) has fully functional file explorer for browsing the workspace and editing files, etc (by making calls to the API).
 
 ## Skills
 - Skills live on the volume at `$WORKSPACE_DIR/.claude/skills/{skill_id}/SKILL.md` (+ supporting files).
@@ -69,25 +73,42 @@ Pass via `context.permission_mode` in `/chat` or toggle in the UI.
 Webhook-triggered runs can’t click “approve”, so **any tool that would normally prompt must be pre-approved** or you’ll see errors like “This command requires approval”.
 
 - Use `POST /webhook` to map arbitrary payloads into a session + message, optionally invoking a slash command:
-  - Example: `POST /webhook?api_key=...&command=voice-transcript&session_id=id&message=transcript&raw_response=true`
+  - Example: `POST <app's railway url>/webhook?api_key=...&command=voice-transcript&session_id=id&message=transcript&raw_response=true`
 - Recommended: keep permissions locked down and add explicit allow rules in `.claude/settings.json` (seeded into the volume by `entrypoint.sh`).
 - Avoid relying on `bypassPermissions` for production webhooks unless you fully trust the deployment and isolation.
-
-## Voice Transcript Workflow
-This repo includes a volume-managed voice pipeline intended for webhook ingestion from a voice app:
-
-- Command: `.claude/commands/voice-transcript.md`
-  - Saves the raw transcript to `./artifacts/transcripts/` via `.claude/commands/scripts/save_transcript.py` (unique filename, returns a public URL).
-  - Routes:
-    - `/process-note` → `.claude/commands/process-note.md` → saves cleaned notes to `./artifacts/notes/`
-    - `/process-meeting` → `.claude/commands/process-meeting.md` → saves diarised notes to `./artifacts/meeting-notes/`
 
 ## Running Locally
 1) `python -m venv .venv && source .venv/bin/activate`
 2) `pip install -r requirements.txt`
-3) `export API_KEY=dev-local-key` (or your key)
-4) `uvicorn main:app --reload`
-5) Open `chat.html` in a browser (set `API_URL` at top if needed).
+3) `export API_KEY="$(openssl rand -hex 32)"` (or any strong random key)
+4) Start Redis (required for `/chat` session/history storage):
+   - Homebrew: `brew install redis && brew services start redis`
+   - Docker: `docker run -d --name clawed-redis -p 6379:6379 redis:7`
+5) `export REDIS_URL="redis://localhost:6379"` (default, but explicit is clearer)
+6) `uvicorn main:app --reload`
+7) Open `chat.html` in a browser (set `API_URL` at top if needed).
+
+### Local Smoke Tests
+
+Health:
+```bash
+curl -fsS http://127.0.0.1:8080/health
+```
+
+Chat (non-streaming):
+```bash
+curl -sS -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"session_id":"smoke","message":"Say hello world and nothing else.","context":{"permission_mode":"acceptEdits"}}' \
+  http://127.0.0.1:8080/chat | python3 -m json.tool
+```
+
+If `/chat` returns a 500, run uvicorn with debug logs and re-run the curl without `-f` to see the error:
+```bash
+uvicorn main:app --reload --log-level debug
+curl -sS -D - -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"session_id":"smoke","message":"Hello","context":{"permission_mode":"acceptEdits"}}' \
+  http://127.0.0.1:8080/chat
+```
 
 ## Env Vars
 - `API_KEY` (required)
@@ -113,10 +134,28 @@ This repo includes a volume-managed voice pipeline intended for webhook ingestio
 - `chat.html` — single-page UI
 - `Dockerfile`, `entrypoint.sh` — image and permissions fix
 - `.claude/settings.json` — project permission rules used for non-interactive runs (webhooks)
-- `.claude/CLAUDE.md` — project context (volume-managed) appended to the system prompt
-- `.claude/commands/scripts/` — helper scripts invoked by commands
+- `.claude/CLAUDE.md` — project context (volume-managed) appended to the system prompt - editable via the chat UI
+- `.claude/scripts/` — helper scripts invoked by commands
 
 
-## Current Limitations
-- Workspace download URLs require API key (by design). UI provides one-click open/download/curl to ease this.
-- SDK streams messages (not tokens); long tool runs may show status but not partial text.
+/
+└── .claude/
+    ├── commands/
+    │   ├── list-artifacts.md (1478b)
+    │   ├── query-sessions.md (596b)
+    ├── scripts/
+    │   ├── analyze_session_tools.py (1455b)
+    │   ├── export_session.py (4803b)
+    │   ├── list_artifacts.sh (5408b)
+    │   ├── save_transcript.py (835b)
+    │   └── session_query.sh (3191b)
+    ├── skills/
+    │   └── skill-creator/
+    │       ├── scripts/
+    │       │   ├── init_skill.py (10863b)
+    │       │   ├── package_skill.py (3247b)
+    │       │   └── quick_validate.py (2165b)
+    │       ├── LICENSE.txt (11357b)
+    │       └── SKILL.md (11547b)
+    ├── CLAUDE.md (3058b)
+    └── settings.json (323b)

@@ -35,10 +35,23 @@ plan.md
 peregian-hub-annual-report-2025.html
 tools/hub_tools.py
 TODO.md
-CLAUDE.md
+
 .claude/settings.local.json
 
 /projects
-/.claude/skills
-/.claude/commands
+/.claude/skills/*
+/.claude/commands/*
+CLAUDE.md
+AGENTS.md
+
+!/.claude/scripts/list_artifacts.sh
+!/.claude/scripts/session_query.sh
+!/.claude/scripts/save_transcript.py
+
+!/.claude/commands/query-sessions.md
+!/.claude/commands/list-artifacts.md
+
 !/.claude/skills/skill-creator
+!/.claude/CLAUDE.md
+
+workspace_tree.py

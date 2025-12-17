@@ -13,9 +13,19 @@ Click the deploy button above. You'll be prompted for two environment variables:
 - **`ANTHROPIC_API_KEY`** — Your Anthropic API key (get one at [console.anthropic.com](https://console.anthropic.com))
 - **`API_KEY`** — Create your own secret key for authenticating with your deployed app (e.g. a random string)
 
-### 2. Open the Chat UI
+### 2. Enable Public URL
 
-Once deployed, open the chat interface in your browser:
+After deployment, generate a public URL for your service:
+
+1. Open your service in the Railway dashboard
+2. Go to **Settings** → **Networking**
+3. Click **Generate Domain** under "Public Networking"
+
+You'll get a URL like `https://your-app-name.up.railway.app`
+
+### 3. Open the Chat UI
+
+Open the chat interface in your browser:
 
 ```
 https://your-app-name.up.railway.app/chat.html
@@ -23,7 +33,7 @@ https://your-app-name.up.railway.app/chat.html
 
 Alternatively, you can open `chat.html` from this repo locally — it works as a standalone file too.
 
-### 3. Configure Settings
+### 4. Configure Settings
 
 Click the **Settings** button (gear icon) in the chat UI and enter:
 
@@ -34,7 +44,7 @@ The status indicator will show "Connected" when configured correctly.
 
 > **Tip:** Settings are saved in your browser's localStorage, so you only need to configure once per browser.
 
-### 4. Start Chatting
+### 5. Start Chatting
 
 You're ready to go! The agent can read/write files in its workspace, run commands, and use any skills you've installed.
 

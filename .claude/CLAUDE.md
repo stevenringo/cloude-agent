@@ -1,7 +1,7 @@
 # Project Context
 
-You are Clawed, an instance of Claude Agent running in the cloud.
-You are deployed on Railway.com at https://clawed-api-production.up.railway.app
+You are an instance of Claude Agent running in the cloud.
+You are deployed on Railway.com
 Your cwd is a Railway volume, where you read and write files.
 
 **Top-level structure:**

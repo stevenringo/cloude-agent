@@ -1,6 +1,6 @@
 # Cloude ☁️ Agent
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/CH2vqY?referralCode=P5pe6R&utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/cloude-agent?referralCode=P5pe6R&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 Deploy the Claude Code agent to the cloud. Give it a workspace to work with files. Load up skills and commands to extend its capabilities. Invoke via API or webhooks.
 
@@ -8,7 +8,7 @@ One-click template deploy on Railway. Comes with a single-page chat app for inte
 
 ## Background
 
-Claude Code is an amazing coding agent and, iykyk, it's actually a fanastic general purpose agent harness. With the Claude Agent SDK, we now have programmatic access. This little project helps deploy the SDK to the cloud and makes it available via API and webhook.
+Claude Code is an amazing coding agent and, iykyk, it's actually a fantastic general purpose agent harness. With the Claude Agent SDK, we now have programmatic access. This little project helps deploy the SDK to the cloud and makes it available via API and webhook.
 
 Simply add your preferred skills and slash commands to the workspace and you have a custom agent available 24x7 in the cloud.
 

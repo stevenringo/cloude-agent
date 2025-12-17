@@ -126,7 +126,7 @@ curl -sS -D - -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 - Dockerfile installs node + Claude CLI, creates `appuser`, uses entrypoint to `chown` `/app/workspace` before dropping privileges.
 - Attach a volume to `/app/workspace` for persistence.
 - Run `railway up --detach` to deploy.
-- `entrypoint.sh` seeds default `.claude/commands/`, `.claude/skills/`, `.claude/settings.json`, `.claude/CLAUDE.md`, and `.claude/commands/scripts/` into the volume **only if missing** (non-destructive). To pick up image updates, edit the volume files (preferred) or delete the specific file(s) from the volume so they can be re-seeded.
+- `entrypoint.sh` seeds default `.claude/commands/`, `.claude/scripts/`, `.claude/skills/`, `.claude/settings.json`, and `.claude/CLAUDE.md` into the volume **only if missing** (non-destructive). To pick up image updates, edit the volume files (preferred) or delete the specific file(s) from the volume so they can be re-seeded.
 
 ## Notable Files
 - `main.py` — FastAPI app and endpoints
@@ -141,21 +141,20 @@ curl -sS -D - -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 /
 └── .claude/
     ├── commands/
-    │   ├── list-artifacts.md (1478b)
-    │   ├── query-sessions.md (596b)
+    │   ├── list-artifacts.md
+    │   ├── query-sessions.md
+    │   └── voice-transcript.md
     ├── scripts/
-    │   ├── analyze_session_tools.py (1455b)
-    │   ├── export_session.py (4803b)
-    │   ├── list_artifacts.sh (5408b)
-    │   ├── save_transcript.py (835b)
-    │   └── session_query.sh (3191b)
+    │   ├── list_artifacts.sh
+    │   ├── save_transcript.py
+    │   └── session_query.sh
     ├── skills/
     │   └── skill-creator/
     │       ├── scripts/
-    │       │   ├── init_skill.py (10863b)
-    │       │   ├── package_skill.py (3247b)
-    │       │   └── quick_validate.py (2165b)
-    │       ├── LICENSE.txt (11357b)
-    │       └── SKILL.md (11547b)
-    ├── CLAUDE.md (3058b)
-    └── settings.json (323b)
+    │       │   ├── init_skill.py
+    │       │   ├── package_skill.py
+    │       │   └── quick_validate.py
+    │       ├── LICENSE.txt
+    │       └── SKILL.md
+    ├── CLAUDE.md
+    └── settings.json

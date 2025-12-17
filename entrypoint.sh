@@ -5,6 +5,7 @@
 WORKSPACE_DIR="${WORKSPACE_DIR:-/app/workspace}"
 SKILLS_DIR="${SKILLS_DIR:-$WORKSPACE_DIR/.claude/skills}"
 COMMANDS_DIR="${COMMANDS_DIR:-$WORKSPACE_DIR/.claude/commands}"
+SCRIPTS_DIR="${SCRIPTS_DIR:-$WORKSPACE_DIR/.claude/scripts}"
 ARTIFACTS_DIR="${ARTIFACTS_DIR:-$WORKSPACE_DIR/artifacts}"
 CLAUDE_CONFIG_DIR="${WORKSPACE_DIR}/.claude-home"
 
@@ -12,12 +13,14 @@ CLAUDE_CONFIG_DIR="${WORKSPACE_DIR}/.claude-home"
 mkdir -p "$WORKSPACE_DIR"
 mkdir -p "$SKILLS_DIR"
 mkdir -p "$COMMANDS_DIR"
+mkdir -p "$SCRIPTS_DIR"
 mkdir -p "$ARTIFACTS_DIR"
 mkdir -p "$CLAUDE_CONFIG_DIR"
 
 # Seed default commands/skills from the image into the volume on first run.
 # This keeps "one-click deploy" usable while still allowing runtime edits on the volume.
 DEFAULT_COMMANDS_SRC="/app/.claude/commands"
+DEFAULT_SCRIPTS_SRC="/app/.claude/scripts"
 DEFAULT_SKILLS_SRC="/app/.claude/skills"
 DEFAULT_SETTINGS_SRC="/app/.claude/settings.json"
 DEFAULT_CLAUDE_MD_SRC="/app/.claude/CLAUDE.md"
@@ -26,10 +29,10 @@ if [ -d "$DEFAULT_COMMANDS_SRC" ] && [ -z "$(ls -A "$COMMANDS_DIR" 2>/dev/null |
     cp -n "$DEFAULT_COMMANDS_SRC"/*.md "$COMMANDS_DIR"/ 2>/dev/null || true
 fi
 
-# Also seed command helper scripts (non-destructive: only copies missing files).
-if [ -d "$DEFAULT_COMMANDS_SRC/scripts" ]; then
-    mkdir -p "$COMMANDS_DIR/scripts"
-    cp -R -n "$DEFAULT_COMMANDS_SRC/scripts/"* "$COMMANDS_DIR/scripts/" 2>/dev/null || true
+# Also seed helper scripts (non-destructive: only copies missing files).
+if [ -d "$DEFAULT_SCRIPTS_SRC" ]; then
+    mkdir -p "$SCRIPTS_DIR"
+    cp -R -n "$DEFAULT_SCRIPTS_SRC/"* "$SCRIPTS_DIR/" 2>/dev/null || true
 fi
 
 if [ -d "$DEFAULT_SKILLS_SRC" ] && [ -z "$(ls -A "$SKILLS_DIR" 2>/dev/null || true)" ]; then
@@ -52,6 +55,8 @@ fi
 # Make all skill scripts executable
 find "$SKILLS_DIR" -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
 find "$SKILLS_DIR" -name "*.py" -exec chmod +x {} \; 2>/dev/null || true
+find "$SCRIPTS_DIR" -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+find "$SCRIPTS_DIR" -name "*.py" -exec chmod +x {} \; 2>/dev/null || true
 
 # If we're root, change ownership to appuser
 if [ "$(id -u)" = "0" ]; then

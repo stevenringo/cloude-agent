@@ -69,13 +69,9 @@ _WEBHOOK_REQUIRED_ALLOW_RULES: list[str] = [
     # python3 script helpers (two parsing styles: `python3:<args>` vs `python3 <script>:<args>`)
     "Bash(python3:./.claude/scripts/*)",
     "Bash(python3:.claude/scripts/*)",
-    "Bash(python3:./.claude/commands/scripts/*)",
-    "Bash(python3:.claude/commands/scripts/*)",
     # Some versions of the bash parser treat "python3 <script>" as the command+subcommand.
     "Bash(python3 ./.claude/scripts/*:*)",
     "Bash(python3 .claude/scripts/*:*)",
-    "Bash(python3 ./.claude/commands/scripts/*:*)",
-    "Bash(python3 .claude/commands/scripts/*:*)",
 ]
 
 def _format_query_error(*, stderr_text: str, exc: Exception) -> RuntimeError:

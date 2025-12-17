@@ -3452,66 +3452,45 @@ Instructions for Claude on how to use this skill..."></textarea>
             return path.replace(/^\/+/, "");
         }
 
-        function promptOpenWorkspaceFile() {
-            const input = prompt("Enter workspace-relative path to edit (e.g. .claude/commands/foo.md):");
-            if (input) {
-                openTextEditor(input.trim(), input.trim());
-            }
-        }
+	        function promptOpenWorkspaceFile() {
+	            const input = prompt("Enter workspace-relative path to edit (e.g. .claude/commands/foo.md or .claude/scripts/foo.sh):");
+	            if (input) {
+	                openTextEditor(input.trim(), input.trim());
+	            }
+	        }
 
 	        async function openCommandEditor(cmdId, encodedPath) {
 	            const path = decodeURIComponent(encodedPath);
 	            openTextEditor(path, `/${cmdId}`);
 	        }
 
-	        async function loadScripts() {
-	            const apiKey = document.getElementById('apiKey').value;
-	            if (!apiKey) {
-	                renderScriptsEmpty();
+		        async function loadScripts() {
+		            const apiKey = document.getElementById('apiKey').value;
+		            if (!apiKey) {
+		                renderScriptsEmpty();
 	                return;
 	            }
 
-	            const contentEl = document.getElementById('scriptsContent');
-	            contentEl.innerHTML = '<div class="artifacts-empty"><p>Loading...</p></div>';
+		            const contentEl = document.getElementById('scriptsContent');
+		            contentEl.innerHTML = '<div class="artifacts-empty"><p>Loading...</p></div>';
 
-	            const primaryBasePath = '.claude/scripts';
-	            const legacyBasePath = '.claude/commands/scripts';
-	            let basePath = primaryBasePath;
-	            let data = null;
-	            try {
-	                let response = await fetch(`${API_URL}/workspace?path=${encodeURIComponent(primaryBasePath)}`, {
-	                    headers: { 'X-API-Key': apiKey }
-	                });
+		            const basePath = '.claude/scripts';
+		            try {
+		                const response = await fetch(`${API_URL}/workspace?path=${encodeURIComponent(basePath)}`, {
+		                    headers: { 'X-API-Key': apiKey }
+		                });
 
-	                if (!response.ok) {
-	                    renderScriptsEmpty();
-	                    return;
-	                }
-
-	                data = await response.json();
-	                const primaryFiles = data.files || [];
-	                if (primaryFiles.length === 0) {
-	                    try {
-	                        response = await fetch(`${API_URL}/workspace?path=${encodeURIComponent(legacyBasePath)}`, {
-	                            headers: { 'X-API-Key': apiKey }
-	                        });
-	                        if (response.ok) {
-	                            const legacyData = await response.json();
-	                            const legacyFiles = legacyData.files || [];
-	                            if (legacyFiles.length > 0) {
-	                                basePath = legacyBasePath;
-	                                data = legacyData;
-	                            }
-	                        }
-	                    } catch (e) {}
-	                }
-
-	                renderScriptsList((data && data.files) ? data.files : [], basePath);
-	            } catch (e) {
-	                console.error('Failed to load scripts:', e);
-	                renderScriptsEmpty();
-	            }
-	        }
+		                if (response.ok) {
+		                    const data = await response.json();
+		                    renderScriptsList(data.files || [], basePath);
+		                } else {
+		                    renderScriptsEmpty();
+		                }
+		            } catch (e) {
+		                console.error('Failed to load scripts:', e);
+		                renderScriptsEmpty();
+		            }
+		        }
 
 	        function renderScriptsEmpty() {
 	            const contentEl = document.getElementById('scriptsContent');

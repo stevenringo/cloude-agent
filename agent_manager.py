@@ -67,13 +67,13 @@ _WEBHOOK_REQUIRED_ALLOW_RULES: list[str] = [
     "Bash(date:*)",
     "Bash(mkdir:*)",
     # python3 script helpers (two parsing styles: `python3:<args>` vs `python3 <script>:<args>`)
+    "Bash(python3:./.claude/scripts/*)",
+    "Bash(python3:.claude/scripts/*)",
     "Bash(python3:./.claude/commands/scripts/*)",
     "Bash(python3:.claude/commands/scripts/*)",
-    "Bash(python3:./.claude/commands/scripts/save_transcript.py*)",
-    "Bash(python3:.claude/commands/scripts/save_transcript.py*)",
     # Some versions of the bash parser treat "python3 <script>" as the command+subcommand.
-    "Bash(python3 ./.claude/commands/scripts/save_transcript.py:*)",
-    "Bash(python3 .claude/commands/scripts/save_transcript.py:*)",
+    "Bash(python3 ./.claude/scripts/*:*)",
+    "Bash(python3 .claude/scripts/*:*)",
     "Bash(python3 ./.claude/commands/scripts/*:*)",
     "Bash(python3 .claude/commands/scripts/*:*)",
 ]

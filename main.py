@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Clawed",
+    title="Cloude ☁️ Agent",
     description="Claude Agent SDK endpoint for invoking Claude in the cloud",
     version="1.0.0",
     lifespan=lifespan
@@ -730,7 +730,7 @@ async def get_session(session_id: str, raw: bool = False):
 async def root():
     """API information."""
     return {
-        "name": "Clawed - Claude Agent API",
+        "name": "Cloude ☁️ Agent",
         "version": "1.0.0",
         "endpoints": {
             "POST /chat": "Send message to agent (supports `command` param for slash commands)",

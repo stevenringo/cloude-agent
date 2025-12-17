@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Söhne:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
     <style>
         :root {
             --bg-primary: #1a1a1a;
@@ -1419,6 +1420,12 @@
             gap: 4px;
         }
 
+        .artifacts-tree.drag-over {
+            outline: 2px dashed rgba(217, 119, 87, 0.6);
+            outline-offset: 6px;
+            border-radius: 10px;
+        }
+
         .artifacts-folder {
             margin-bottom: 8px;
         }
@@ -1436,6 +1443,12 @@
 
         .artifacts-folder-header:hover {
             background: var(--bg-tertiary);
+        }
+
+        .artifacts-folder-header.drag-over {
+            background: rgba(217, 119, 87, 0.12);
+            outline: 2px dashed rgba(217, 119, 87, 0.7);
+            outline-offset: 2px;
         }
 
         .artifacts-folder-name {
@@ -1520,6 +1533,18 @@
         .artifacts-file-btn:hover {
             color: var(--text-primary);
             background: var(--bg-tertiary);
+        }
+
+        .artifacts-file-btn.delete:hover {
+            color: var(--error);
+        }
+
+        .monaco-editor-host {
+            height: 65vh;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            background: #1e1e1e;
         }
 
         .artifacts-empty {
@@ -1833,6 +1858,7 @@ Instructions for Claude on how to use this skill..."></textarea>
     <div class="artifacts-modal-overlay" id="artifactsModal">
         <div class="artifacts-modal-header">
             <div class="explorer-tabs">
+                <button class="explorer-tab" id="tabClaudeMd" onclick="switchExplorerTab('claude')">CLAUDE.md</button>
                 <button class="explorer-tab" id="tabSkills" onclick="switchExplorerTab('skills')">Skills</button>
                 <button class="explorer-tab active" id="tabArtifacts" onclick="switchExplorerTab('artifacts')">Artifacts</button>
                 <button class="explorer-tab" id="tabCommands" onclick="switchExplorerTab('commands')">Commands</button>
@@ -1855,6 +1881,13 @@ Instructions for Claude on how to use this skill..."></textarea>
             </div>
         </div>
         <div class="artifacts-modal-body">
+            <!-- CLAUDE.md Tab Content -->
+            <div id="claudeContent" style="display: none;">
+                <div class="artifacts-empty">
+                    <h3>CLAUDE.md</h3>
+                    <p>Project context loaded from the workspace volume.</p>
+                </div>
+            </div>
             <!-- Skills Tab Content -->
             <div id="skillsContent" style="display: none;">
                 <div class="skills-pane">
@@ -1932,16 +1965,21 @@ Instructions for Claude on how to use this skill..."></textarea>
         </div>
     </div>
 
-    <script>
-        const API_URL = 'https://clawed-api-production.up.railway.app';
-        
-        let currentSessionId = null;
-        let attachedFiles = [];
-        let isLoading = false;
-        const messageMarkdown = {};
+        <script>
+            const API_URL = 'https://clawed-api-production.up.railway.app';
+            
+            let currentSessionId = null;
+            let attachedFiles = [];
+            let isLoading = false;
+            const messageMarkdown = {};
+            let skillsContentTemplate = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            const skillsContentEl = document.getElementById('skillsContent');
+            if (skillsContentEl) {
+                skillsContentTemplate = skillsContentEl.innerHTML;
+            }
             loadApiKey();
             loadModel();
             loadChats();
@@ -1949,6 +1987,39 @@ Instructions for Claude on how to use this skill..."></textarea>
             setupEventListeners();
             autoResizeTextarea();
         });
+
+        function installSkillsDropZoneListeners() {
+            const skillsDropZone = document.getElementById('skillsDropZone');
+            if (!skillsDropZone) return;
+            if (skillsDropZone.dataset.listenersInstalled === '1') return;
+            skillsDropZone.dataset.listenersInstalled = '1';
+
+            skillsDropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                skillsDropZone.classList.add('drag-over');
+            });
+
+            skillsDropZone.addEventListener('dragleave', (e) => {
+                if (!skillsDropZone.contains(e.relatedTarget)) {
+                    skillsDropZone.classList.remove('drag-over');
+                }
+            });
+
+            skillsDropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                skillsDropZone.classList.remove('drag-over');
+                handleSkillDrop(e.dataTransfer.files);
+            });
+        }
+
+        function ensureSkillsPaneTemplate() {
+            const skillsList = document.getElementById('skillsList');
+            if (skillsList) return;
+            const skillsContentEl = document.getElementById('skillsContent');
+            if (!skillsContentEl || !skillsContentTemplate) return;
+            skillsContentEl.innerHTML = skillsContentTemplate;
+            installSkillsDropZoneListeners();
+        }
 
         function setupEventListeners() {
             const input = document.getElementById('messageInput');
@@ -1992,24 +2063,7 @@ Instructions for Claude on how to use this skill..."></textarea>
                 handleFiles(e.dataTransfer.files);
             });
 
-            // Skills drop zone
-            const skillsDropZone = document.getElementById('skillsDropZone');
-            skillsDropZone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                skillsDropZone.classList.add('drag-over');
-            });
-
-            skillsDropZone.addEventListener('dragleave', (e) => {
-                if (!skillsDropZone.contains(e.relatedTarget)) {
-                    skillsDropZone.classList.remove('drag-over');
-                }
-            });
-
-            skillsDropZone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                skillsDropZone.classList.remove('drag-over');
-                handleSkillDrop(e.dataTransfer.files);
-            });
+            installSkillsDropZoneListeners();
 
             // Skill upload zone in modal
             const skillUploadZone = document.getElementById('skillUploadZone');
@@ -2027,6 +2081,8 @@ Instructions for Claude on how to use this skill..."></textarea>
                 skillUploadZone.classList.remove('drag-over');
                 handleSkillZipDrop(e.dataTransfer.files);
             });
+
+            setupArtifactsDropHandling();
         }
 
         function autoResizeTextarea() {
@@ -2120,8 +2176,10 @@ Instructions for Claude on how to use this skill..."></textarea>
 
         // Skill management
         let editingSkillId = null;
+        let currentSkillExplorer = null;
 
         async function loadSkills() {
+            ensureSkillsPaneTemplate();
             const apiKey = document.getElementById('apiKey').value;
             if (!apiKey) {
                 renderSkills([]);
@@ -2174,6 +2232,11 @@ Instructions for Claude on how to use this skill..."></textarea>
                                 <line x1="12" y1="15" x2="12" y2="3"/>
                             </svg>
                         </button>
+                        <button class="skill-item-btn" onclick="openSkillExplorer('${skill.id}', '${encodeURIComponent(skill.name || skill.id)}')" title="Browse files">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                        </button>
                         <button class="skill-item-btn" onclick="editSkill('${skill.id}')" title="Edit">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -2189,6 +2252,226 @@ Instructions for Claude on how to use this skill..."></textarea>
                     </div>
                 </div>
             `).join('');
+        }
+
+        async function openSkillExplorer(skillId, encodedName) {
+            const name = decodeURIComponent(encodedName || '') || skillId;
+            currentSkillExplorer = { id: skillId, name };
+            await loadSkillExplorer();
+        }
+
+        async function loadSkillExplorer() {
+            if (!currentSkillExplorer || !currentSkillExplorer.id) {
+                loadSkills();
+                return;
+            }
+
+            const apiKey = document.getElementById('apiKey').value;
+            const contentEl = document.getElementById('skillsContent');
+            if (!apiKey) {
+                contentEl.innerHTML = `
+                    <div class="artifacts-empty">
+                        <h3>Skills</h3>
+                        <p>Enter your API key in Settings to view and edit.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const basePath = `.claude/skills/${currentSkillExplorer.id}`;
+            contentEl.innerHTML = '<div class="artifacts-empty"><p>Loading...</p></div>';
+
+            try {
+                const response = await fetch(`${API_URL}/workspace?path=${encodeURIComponent(basePath)}`, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                if (!response.ok) {
+                    contentEl.innerHTML = '<div class="artifacts-empty"><h3>Failed to load skill files</h3></div>';
+                    return;
+                }
+                const data = await response.json();
+                const files = data.files || [];
+                renderSkillExplorer(files, basePath);
+            } catch (e) {
+                contentEl.innerHTML = '<div class="artifacts-empty"><h3>Failed to load skill files</h3></div>';
+            }
+        }
+
+        function renderSkillExplorer(files, basePath) {
+            const contentEl = document.getElementById('skillsContent');
+            const skillTitle = currentSkillExplorer ? (currentSkillExplorer.name || currentSkillExplorer.id) : 'Skill';
+            const skillId = currentSkillExplorer ? currentSkillExplorer.id : '';
+
+            let html = `
+                <div class="skills-pane-header" style="margin-bottom: 12px;">
+                    <div>
+                        <div class="skills-pane-title">${escapeHtml(skillTitle)}</div>
+                        <div class="skills-pane-subtitle">${escapeHtml(basePath)}</div>
+                    </div>
+                    <div class="skills-pane-actions">
+                        <button class="artifacts-refresh-btn" onclick="backToSkillsList()">Back</button>
+                        <button class="artifacts-refresh-btn" onclick="downloadSkill('${escapeHtml(skillId)}')">Download</button>
+                        <button class="artifacts-refresh-btn" onclick="deleteSkill('${escapeHtml(skillId)}')">Delete</button>
+                    </div>
+                </div>
+            `;
+
+            html += '<div class="artifacts-tree">';
+            if (!files || files.length === 0) {
+                html += '<div class="artifacts-empty" style="padding: 24px;"><p>(empty)</p></div>';
+            } else {
+                for (const file of files) {
+                    const fullPath = `${basePath}/${file.name}`;
+                    if (file.is_dir) {
+                        const folderId = `folder-${fullPath.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                        html += `
+                            <div class="artifacts-folder">
+                                <div class="artifacts-folder-header" onclick="toggleSkillFolder('${escapeHtml(fullPath)}', '${folderId}')" style="cursor: pointer;">
+                                    <svg class="folder-chevron" id="chevron-${folderId}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
+                                        <polyline points="9 18 15 12 9 6"></polyline>
+                                    </svg>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                    </svg>
+                                    <span class="artifacts-folder-name">${escapeHtml(file.name)}</span>
+                                </div>
+                                <div class="artifacts-folder-contents" id="${folderId}" style="display: none;"></div>
+                            </div>
+                        `;
+                    } else {
+                        html += renderSkillFileRow(file.name, fullPath);
+                    }
+                }
+            }
+            html += '</div>';
+            contentEl.innerHTML = html;
+        }
+
+        function renderSkillFileRow(name, workspacePath) {
+            const encodedPath = encodeURIComponent(workspacePath || '');
+            const encodedTitle = encodeURIComponent(name || '');
+            const canEdit = isEditableTextFile(workspacePath || name);
+            const editBtn = canEdit ? `
+                        <button class="artifacts-file-btn" onclick="editSkillWorkspaceFile('${encodedPath}', '${encodedTitle}')" title="Edit">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                        </button>
+            ` : '';
+
+	            return `
+	                <div class="artifacts-file" draggable="true" data-workspace-path="${encodedPath}">
+	                    <div class="artifacts-file-icon">
+	                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+	                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+	                            <polyline points="14 2 14 8 20 8"/>
+	                        </svg>
+                    </div>
+                    <div class="artifacts-file-info">
+                        <span class="artifacts-file-name">${escapeHtml(name)}</span>
+                        <div class="artifacts-file-url">${escapeHtml(workspacePath)}</div>
+                    </div>
+                    <div class="artifacts-file-actions">
+                        ${editBtn}
+                        <button class="artifacts-file-btn delete" onclick="deleteSkillWorkspaceFile('${encodedPath}')" title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function toggleSkillFolder(path, folderId) {
+            const contentsEl = document.getElementById(folderId);
+            const chevronEl = document.getElementById(`chevron-${folderId}`);
+            if (!contentsEl || !chevronEl) return;
+
+            if (contentsEl.style.display === 'none') {
+                contentsEl.style.display = 'block';
+                chevronEl.style.transform = 'rotate(90deg)';
+
+                if (contentsEl.innerHTML === '') {
+                    contentsEl.innerHTML = '<div style="padding: 8px 0 8px 20px; color: #888;">Loading...</div>';
+
+                    const apiKey = document.getElementById('apiKey').value;
+                    try {
+                        const response = await fetch(`${API_URL}/workspace?path=${encodeURIComponent(path)}`, {
+                            headers: { 'X-API-Key': apiKey }
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            const files = data.files || [];
+                            contentsEl.innerHTML = renderSkillFolderContents(files, path);
+                        } else {
+                            contentsEl.innerHTML = '<div style="padding: 8px 0 8px 20px; color: #f66;">Failed to load</div>';
+                        }
+                    } catch (e) {
+                        contentsEl.innerHTML = '<div style="padding: 8px 0 8px 20px; color: #f66;">Failed to load</div>';
+                    }
+                }
+            } else {
+                contentsEl.style.display = 'none';
+                chevronEl.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function renderSkillFolderContents(files, basePath) {
+            if (files.length === 0) {
+                return '<div style="padding: 8px 0 8px 20px; color: #888;">(empty)</div>';
+            }
+
+            let html = '';
+            for (const file of files) {
+                const fullPath = `${basePath}/${file.name}`;
+                if (file.is_dir) {
+                    const folderId = `folder-${fullPath.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    html += `
+                        <div class="artifacts-folder" style="margin-left: 20px;">
+                            <div class="artifacts-folder-header" onclick="toggleSkillFolder('${escapeHtml(fullPath)}', '${folderId}')" style="cursor: pointer;">
+                                <svg class="folder-chevron" id="chevron-${folderId}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                </svg>
+                                <span class="artifacts-folder-name">${escapeHtml(file.name)}</span>
+                            </div>
+                            <div class="artifacts-folder-contents" id="${folderId}" style="display: none;"></div>
+                        </div>
+                    `;
+                } else {
+                    html += `<div style="margin-left: 20px;">${renderSkillFileRow(file.name, fullPath)}</div>`;
+                }
+            }
+            return html;
+        }
+
+        async function editSkillWorkspaceFile(encodedPath, encodedTitle) {
+            const path = decodeURIComponent(encodedPath || '');
+            const title = decodeURIComponent(encodedTitle || '') || path;
+            if (!isEditableTextFile(path)) {
+                alert('This file type is not editable in the browser.');
+                return;
+            }
+            await openTextEditor(path, title, { containerId: 'skillsContent', onBack: loadSkillExplorer });
+        }
+
+        async function deleteSkillWorkspaceFile(encodedPath) {
+            const path = decodeURIComponent(encodedPath || '');
+            if (!path) return;
+            if (!confirm(`Delete "${path}"?`)) return;
+            const ok = await deleteWorkspaceItem(path);
+            if (!ok) return;
+            await loadSkillExplorer();
+        }
+
+        function backToSkillsList() {
+            currentSkillExplorer = null;
+            loadSkills();
         }
 
         // Skill zip handling
@@ -2389,7 +2672,7 @@ Instructions for Claude on how to use this skill..."></textarea>
                         </svg>
                     </div>
                     <h3>No artifacts yet</h3>
-                    <p>Claude can save files to /artifacts/ to share them publicly.<br>They'll appear here with clickable links.</p>
+                    <p>Claude can save files to /artifacts/ to share them publicly.<br>They'll appear here with clickable links.<br>Tip: drag & drop files onto a folder to upload.</p>
                 </div>
             `;
         }
@@ -2410,7 +2693,7 @@ Instructions for Claude on how to use this skill..."></textarea>
                     const folderId = `folder-${fullPath.replace(/[^a-zA-Z0-9]/g, '-')}`;
                     html += `
                         <div class="artifacts-folder">
-                            <div class="artifacts-folder-header" onclick="toggleArtifactFolder('${escapeHtml(fullPath)}', '${folderId}')" style="cursor: pointer;">
+	                            <div class="artifacts-folder-header" data-artifacts-path="${encodeURIComponent(fullPath)}" onclick="toggleArtifactFolder('${escapeHtml(fullPath)}', '${folderId}')" style="cursor: pointer;">
                                 <svg class="folder-chevron" id="chevron-${folderId}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
                                     <polyline points="9 18 15 12 9 6"></polyline>
                                 </svg>
@@ -2426,7 +2709,7 @@ Instructions for Claude on how to use this skill..."></textarea>
                     // File
                     const publicPath = fullPath.replace(/^artifacts\//, '');
                     const publicUrl = `${API_URL}/artifacts/${publicPath}`;
-                    html += renderArtifactFile(file.name, publicUrl);
+                    html += renderArtifactFile(file.name, publicUrl, fullPath);
                 }
             }
             html += '</div>';
@@ -2480,7 +2763,7 @@ Instructions for Claude on how to use this skill..."></textarea>
                     const folderId = `folder-${fullPath.replace(/[^a-zA-Z0-9]/g, '-')}`;
                     html += `
                         <div class="artifacts-folder" style="margin-left: 20px;">
-                            <div class="artifacts-folder-header" onclick="toggleArtifactFolder('${escapeHtml(fullPath)}', '${folderId}')" style="cursor: pointer;">
+	                            <div class="artifacts-folder-header" data-artifacts-path="${encodeURIComponent(fullPath)}" onclick="toggleArtifactFolder('${escapeHtml(fullPath)}', '${folderId}')" style="cursor: pointer;">
                                 <svg class="folder-chevron" id="chevron-${folderId}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
                                     <polyline points="9 18 15 12 9 6"></polyline>
                                 </svg>
@@ -2495,13 +2778,25 @@ Instructions for Claude on how to use this skill..."></textarea>
                 } else {
                     const publicPath = fullPath.replace(/^artifacts\//, '');
                     const publicUrl = `${API_URL}/artifacts/${publicPath}`;
-                    html += `<div style="margin-left: 20px;">${renderArtifactFile(file.name, publicUrl)}</div>`;
+                    html += `<div style="margin-left: 20px;">${renderArtifactFile(file.name, publicUrl, fullPath)}</div>`;
                 }
             }
             return html;
         }
 
-        function renderArtifactFile(name, publicUrl) {
+        function renderArtifactFile(name, publicUrl, workspacePath) {
+            const encodedPath = encodeURIComponent(workspacePath || '');
+            const encodedTitle = encodeURIComponent(name || '');
+            const canEdit = isEditableTextFile(workspacePath || name);
+            const editBtn = canEdit ? `
+                        <button class="artifacts-file-btn" onclick="editArtifactFile('${encodedPath}', '${encodedTitle}')" title="Edit">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                        </button>
+            ` : '';
+
             return `
                 <div class="artifacts-file">
                     <div class="artifacts-file-icon">
@@ -2515,6 +2810,13 @@ Instructions for Claude on how to use this skill..."></textarea>
                         <div class="artifacts-file-url">${escapeHtml(publicUrl)}</div>
                     </div>
                     <div class="artifacts-file-actions">
+                        ${editBtn}
+                        <button class="artifacts-file-btn delete" onclick="deleteArtifactFile('${encodedPath}')" title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
                         <button class="artifacts-file-btn" onclick="copyToClipboard('${escapeHtml(publicUrl)}')" title="Copy URL">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -2533,8 +2835,450 @@ Instructions for Claude on how to use this skill..."></textarea>
             `;
         }
 
-        // Commands tab + text editor
+        async function editArtifactFile(encodedPath, encodedTitle) {
+            const path = decodeURIComponent(encodedPath || '');
+            const title = decodeURIComponent(encodedTitle || '') || path;
+            if (!isEditableTextFile(path)) {
+                alert('This file type is not editable in the browser.');
+                return;
+            }
+            await openTextEditor(path, title, { containerId: 'artifactsContent', onBack: loadArtifacts });
+        }
+
+        async function deleteWorkspaceItem(path) {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) {
+                alert('Please enter your API key first');
+                return false;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/workspace/${encodeURIComponent(path)}`, {
+                    method: 'DELETE',
+                    headers: { 'X-API-Key': apiKey }
+                });
+                if (response.ok) return true;
+
+                let detail = '';
+                try {
+                    const data = await response.json();
+                    detail = data.detail || '';
+                } catch (e) {}
+                alert(`Delete failed${detail ? ': ' + detail : ''}`);
+                return false;
+            } catch (e) {
+                alert('Delete failed: ' + e.message);
+                return false;
+            }
+        }
+
+        function getPathBasename(path) {
+            const p = String(path || '').replace(/\/+$/, '');
+            const idx = p.lastIndexOf('/');
+            return idx >= 0 ? p.slice(idx + 1) : p;
+        }
+
+        function getPathDirname(path) {
+            const p = String(path || '').replace(/\/+$/, '');
+            const idx = p.lastIndexOf('/');
+            return idx >= 0 ? p.slice(0, idx) : '';
+        }
+
+        async function moveWorkspaceItem(srcPath, dstPath, overwrite = false) {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) {
+                alert('Please enter your API key first');
+                return null;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/workspace/move`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify({ src: srcPath, dst: dstPath, overwrite: !!overwrite })
+                });
+
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (e) {}
+
+                if (!response.ok) {
+                    const msg = data.detail || 'Unknown error';
+                    alert(`Move failed: ${msg}`);
+                    return null;
+                }
+
+                return data;
+            } catch (e) {
+                alert('Move failed: ' + e.message);
+                return null;
+            }
+        }
+
+        async function deleteArtifactFile(encodedPath) {
+            const path = decodeURIComponent(encodedPath || '');
+            if (!path) return;
+            if (!confirm(`Delete "${path}"?`)) return;
+            const ok = await deleteWorkspaceItem(path);
+            if (!ok) return;
+
+            const parentDir = path.includes('/') ? path.split('/').slice(0, -1).join('/') : 'artifacts';
+            await refreshArtifactsAfterUpload(parentDir || 'artifacts');
+        }
+
+        let artifactsDropHandlingInstalled = false;
+
+        function artifactFolderIdFromPath(path) {
+            return `folder-${String(path || '').replace(/[^a-zA-Z0-9]/g, '-')}`;
+        }
+
+        function setupArtifactsDropHandling() {
+            if (artifactsDropHandlingInstalled) return;
+            const contentEl = document.getElementById('artifactsContent');
+            if (!contentEl) return;
+            artifactsDropHandlingInstalled = true;
+
+            let activeHeader = null;
+            const internalDragType = 'application/x-clawed-workspace-path';
+
+            const clearDragState = () => {
+                if (activeHeader) activeHeader.classList.remove('drag-over');
+                activeHeader = null;
+                const treeEl = contentEl.querySelector('.artifacts-tree');
+                if (treeEl) treeEl.classList.remove('drag-over');
+            };
+
+            contentEl.addEventListener('dragstart', (e) => {
+                if (currentExplorerTab !== 'artifacts') return;
+                const row = e.target.closest('.artifacts-file[draggable="true"]');
+                if (!row || !contentEl.contains(row)) return;
+                const encoded = row.dataset.workspacePath || '';
+                if (!encoded) return;
+                let srcPath = '';
+                try {
+                    srcPath = decodeURIComponent(encoded);
+                } catch (err) {
+                    srcPath = encoded;
+                }
+                if (!srcPath || !srcPath.startsWith('artifacts/')) return;
+
+                if (e.dataTransfer) {
+                    e.dataTransfer.setData(internalDragType, srcPath);
+                    e.dataTransfer.effectAllowed = 'move';
+                }
+            });
+
+            contentEl.addEventListener('dragover', (e) => {
+                if (currentExplorerTab !== 'artifacts') return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (e.dataTransfer) {
+                    const types = Array.from(e.dataTransfer.types || []);
+                    e.dataTransfer.dropEffect = types.includes(internalDragType) ? 'move' : 'copy';
+                }
+
+                const treeEl = contentEl.querySelector('.artifacts-tree');
+                if (treeEl) treeEl.classList.add('drag-over');
+
+                const header = e.target.closest('.artifacts-folder-header');
+                if (activeHeader && header !== activeHeader) activeHeader.classList.remove('drag-over');
+                if (header) {
+                    header.classList.add('drag-over');
+                    activeHeader = header;
+                } else {
+                    activeHeader = null;
+                }
+            });
+
+            contentEl.addEventListener('dragleave', (e) => {
+                if (currentExplorerTab !== 'artifacts') return;
+                if (!e.relatedTarget || !contentEl.contains(e.relatedTarget)) {
+                    clearDragState();
+                }
+            });
+
+            contentEl.addEventListener('drop', async (e) => {
+                if (currentExplorerTab !== 'artifacts') return;
+                e.preventDefault();
+                e.stopPropagation();
+                clearDragState();
+
+                const internalSrc = e.dataTransfer ? (e.dataTransfer.getData(internalDragType) || '') : '';
+
+                let header = e.target.closest('.artifacts-folder-header');
+                if (!header) {
+                    const folder = e.target.closest('.artifacts-folder');
+                    if (folder) header = folder.querySelector(':scope > .artifacts-folder-header');
+                }
+
+                let targetPath = 'artifacts';
+                const encoded = header?.dataset?.artifactsPath;
+                if (encoded) {
+                    try {
+                        targetPath = decodeURIComponent(encoded);
+                    } catch (err) {
+                        targetPath = 'artifacts';
+                    }
+                }
+
+                if (internalSrc) {
+                    const srcPath = String(internalSrc || '').replace(/^\/+/, '');
+                    if (!srcPath.startsWith('artifacts/')) return;
+                    if (!String(targetPath || '').startsWith('artifacts')) targetPath = 'artifacts';
+
+                    const destDir = String(targetPath || 'artifacts').replace(/\/+$/, '');
+                    const destPath = `${destDir}/${getPathBasename(srcPath)}`.replace(/^\/+/, '');
+                    if (destPath === srcPath) return;
+
+                    const result = await moveWorkspaceItem(srcPath, destPath, false);
+                    if (!result) return;
+
+                    const fromDir = getPathDirname(srcPath) || 'artifacts';
+                    await refreshArtifactsAfterUpload(fromDir);
+                    if (destDir !== fromDir) {
+                        await refreshArtifactsAfterUpload(destDir);
+                    }
+                    return;
+                }
+
+                const files = e.dataTransfer?.files;
+                if (!files || files.length === 0) return;
+
+                await uploadArtifactsFiles(files, targetPath);
+            });
+        }
+
+        async function uploadArtifactsFiles(fileList, targetDir) {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) {
+                alert('Please enter your API key first');
+                return;
+            }
+
+            const files = Array.from(fileList || []).filter(f => f && f.name);
+            if (files.length === 0) return;
+
+            const formData = new FormData();
+            formData.append('target_dir', targetDir || 'artifacts');
+            for (const f of files) formData.append('files', f);
+
+            const refreshBtn = document.getElementById('explorerRefreshBtn');
+            const prevDisabled = refreshBtn ? refreshBtn.disabled : false;
+            if (refreshBtn) refreshBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_URL}/artifacts/upload`, {
+                    method: 'POST',
+                    headers: { 'X-API-Key': apiKey },
+                    body: formData
+                });
+
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (e) {}
+
+                if (!response.ok) {
+                    alert('Upload failed: ' + (data.detail || 'Unknown error'));
+                    return;
+                }
+
+                await refreshArtifactsAfterUpload(targetDir);
+            } catch (error) {
+                alert('Upload failed: ' + error.message);
+            } finally {
+                if (refreshBtn) refreshBtn.disabled = prevDisabled;
+            }
+        }
+
+        async function refreshArtifactsAfterUpload(targetDir) {
+            const apiKey = document.getElementById('apiKey').value;
+            const normalized = String(targetDir || '').trim().replace(/^\/+/, '').replace(/\/+$/, '');
+            if (!normalized || normalized === 'artifacts') {
+                await loadArtifacts();
+                return;
+            }
+
+            const folderId = artifactFolderIdFromPath(normalized);
+            const contentsEl = document.getElementById(folderId);
+            if (!contentsEl) {
+                await loadArtifacts();
+                return;
+            }
+
+            contentsEl.innerHTML = '';
+            if (contentsEl.style.display === 'none') return;
+
+            try {
+                const response = await fetch(`${API_URL}/workspace?path=${encodeURIComponent(normalized)}`, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                if (!response.ok) return;
+                const data = await response.json();
+                const files = data.files || [];
+                contentsEl.innerHTML = renderArtifactFolderContents(files, normalized);
+            } catch (e) {
+            }
+        }
+
+        // Text editor (Monaco, with textarea fallback)
         let currentEditingFilePath = null;
+        let currentEditorContainerId = 'commandsContent';
+        let currentEditorOnBack = null;
+        let currentEditorAfterSave = null;
+
+        let monacoEditorInstance = null;
+        let monacoModelInstance = null;
+        let monacoLoadingPromise = null;
+        const MONACO_CDN_BASE = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min';
+
+        function disposeMonacoEditor() {
+            try {
+                if (monacoEditorInstance) {
+                    monacoEditorInstance.dispose();
+                }
+            } catch (e) {}
+            monacoEditorInstance = null;
+
+            try {
+                if (monacoModelInstance) {
+                    monacoModelInstance.dispose();
+                }
+            } catch (e) {}
+            monacoModelInstance = null;
+        }
+
+        function ensureMonacoLoaderLoaded() {
+            if (window.require && window.require.config) return Promise.resolve();
+
+            const existing = document.querySelector('script[data-monaco-loader="1"]');
+            if (existing) {
+                return new Promise((resolve, reject) => {
+                    existing.addEventListener('load', () => resolve());
+                    existing.addEventListener('error', () => reject(new Error('Failed to load Monaco loader')));
+                });
+            }
+
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = `${MONACO_CDN_BASE}/vs/loader.js`;
+                script.async = true;
+                script.setAttribute('data-monaco-loader', '1');
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('Failed to load Monaco loader'));
+                document.head.appendChild(script);
+            });
+        }
+
+        function loadMonacoExtraLanguages() {
+            if (!window.require) return;
+            const extra = [
+                'vs/basic-languages/python/python.contribution',
+                'vs/basic-languages/shell/shell.contribution',
+                'vs/basic-languages/yaml/yaml.contribution',
+                'vs/basic-languages/toml/toml.contribution',
+                'vs/basic-languages/ini/ini.contribution',
+                'vs/basic-languages/dockerfile/dockerfile.contribution',
+                'vs/basic-languages/sql/sql.contribution',
+            ];
+            for (const mod of extra) {
+                try {
+                    window.require([mod], () => {}, () => {});
+                } catch (e) {}
+            }
+        }
+
+        function ensureMonacoLoaded() {
+            if (window.monaco && window.monaco.editor) return Promise.resolve(window.monaco);
+            if (monacoLoadingPromise) return monacoLoadingPromise;
+
+            monacoLoadingPromise = (async () => {
+                await ensureMonacoLoaderLoaded();
+                if (!window.require || !window.require.config) {
+                    throw new Error('Monaco loader not available');
+                }
+
+                window.MonacoEnvironment = window.MonacoEnvironment || {};
+                if (!window.MonacoEnvironment.getWorkerUrl) {
+                    window.MonacoEnvironment.getWorkerUrl = function(workerId, label) {
+                        const baseUrl = `${MONACO_CDN_BASE}/`;
+                        const src = `
+                            self.MonacoEnvironment = { baseUrl: '${baseUrl}' };
+                            importScripts('${MONACO_CDN_BASE}/vs/base/worker/workerMain.js');
+                        `;
+                        return `data:text/javascript;charset=utf-8,${encodeURIComponent(src)}`;
+                    };
+                }
+
+                window.require.config({ paths: { vs: `${MONACO_CDN_BASE}/vs` } });
+
+                await new Promise((resolve, reject) => {
+                    window.require(['vs/editor/editor.main'], () => resolve(), (err) => reject(err));
+                });
+
+                loadMonacoExtraLanguages();
+                return window.monaco;
+            })();
+
+            return monacoLoadingPromise;
+        }
+
+        function getMonacoLanguageForPath(path) {
+            const name = (String(path || '').split('/').pop() || '').toLowerCase();
+            if (name === 'dockerfile' || name.startsWith('dockerfile.')) return 'dockerfile';
+            if (name === 'makefile') return 'makefile';
+            if (name === '.gitignore' || name === '.gitattributes') return 'plaintext';
+
+            const ext = name.includes('.') ? name.split('.').pop() : '';
+            const map = {
+                'txt': 'plaintext',
+                'md': 'markdown',
+                'markdown': 'markdown',
+                'json': 'json',
+                'py': 'python',
+                'js': 'javascript',
+                'jsx': 'javascript',
+                'ts': 'typescript',
+                'tsx': 'typescript',
+                'html': 'html',
+                'htm': 'html',
+                'css': 'css',
+                'scss': 'scss',
+                'yml': 'yaml',
+                'yaml': 'yaml',
+                'toml': 'toml',
+                'ini': 'ini',
+                'cfg': 'ini',
+                'conf': 'ini',
+                'sh': 'shell',
+                'bash': 'shell',
+                'zsh': 'shell',
+                'sql': 'sql',
+                'xml': 'xml',
+                'csv': 'plaintext',
+                'log': 'plaintext',
+            };
+            return map[ext] || 'plaintext';
+        }
+
+        function isEditableTextFile(path) {
+            const name = (String(path || '').split('/').pop() || '').toLowerCase();
+            if (!name || name === '.' || name === '..') return false;
+            if (name === 'dockerfile' || name.startsWith('dockerfile.')) return true;
+            if (name === 'makefile' || name === '.gitignore' || name === '.gitattributes' || name === '.env') return true;
+
+            const ext = name.includes('.') ? name.split('.').pop() : '';
+            const editableExts = new Set([
+                'txt', 'md', 'markdown', 'json', 'py', 'js', 'jsx', 'ts', 'tsx', 'html', 'htm', 'css', 'scss',
+                'yml', 'yaml', 'toml', 'ini', 'cfg', 'conf', 'sh', 'bash', 'zsh', 'sql', 'xml', 'csv', 'log',
+            ]);
+            return editableExts.has(ext);
+        }
 
         async function loadCommands() {
             const apiKey = document.getElementById('apiKey').value;
@@ -2652,15 +3396,50 @@ Instructions for Claude on how to use this skill..."></textarea>
             openTextEditor(path, `/${cmdId}`);
         }
 
-        async function openTextEditor(path, title) {
+        function handleTextEditorBack() {
+            disposeMonacoEditor();
+            if (typeof currentEditorOnBack === 'function') {
+                currentEditorOnBack();
+            }
+        }
+
+        function isRenameAllowedForPath(path) {
+            const normalized = String(path || '').replace(/^\/+/, '');
+            if (!normalized) return false;
+            if (normalized === '.claude/CLAUDE.md') return false;
+            if (normalized.endsWith('/SKILL.md')) return false;
+            return true;
+        }
+
+        async function openTextEditor(path, title, options = {}) {
             const apiKey = document.getElementById('apiKey').value;
             if (!apiKey) {
                 alert('Please enter your API key first');
                 return;
             }
 
+            disposeMonacoEditor();
+
             currentEditingFilePath = path;
-            const contentEl = document.getElementById('commandsContent');
+            currentEditorContainerId = options.containerId || 'commandsContent';
+            currentEditorOnBack = options.onBack || loadCommands;
+            currentEditorAfterSave = Object.prototype.hasOwnProperty.call(options, 'afterSave') ? options.afterSave : currentEditorOnBack;
+            const showBack = options.showBack !== false;
+            const allowRename = (options.allowRename !== false) && isRenameAllowedForPath(path);
+            const dirName = getPathDirname(path);
+            const baseName = getPathBasename(path);
+            const dirDisplay = dirName ? `${dirName}/` : '';
+            const subtitleHtml = allowRename
+                ? `
+                    <div class="skills-pane-subtitle" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span id="textEditorDirLabel" style="font-family: 'JetBrains Mono', monospace; color: var(--text-muted);">${escapeHtml(dirDisplay)}</span>
+                        <input id="textEditorFilenameInput" class="form-input" value="${escapeHtml(baseName)}" spellcheck="false" autocomplete="off" style="padding: 6px 10px; width: 320px; max-width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 12px;">
+                    </div>
+                `
+                : `<div class="skills-pane-subtitle">${escapeHtml(currentEditingFilePath)}</div>`;
+            const renameBtn = allowRename ? `<button class="artifacts-refresh-btn" onclick="renameTextEditorFile()">Rename</button>` : '';
+
+            const contentEl = document.getElementById(currentEditorContainerId);
             contentEl.innerHTML = '<div class="artifacts-empty"><p>Loading file...</p></div>';
 
             try {
@@ -2669,34 +3448,143 @@ Instructions for Claude on how to use this skill..."></textarea>
                 });
 
                 if (!response.ok) {
-                    contentEl.innerHTML = '<div class="artifacts-empty"><h3>Failed to load file</h3></div>';
+                    let detail = '';
+                    try {
+                        const data = await response.json();
+                        detail = data.detail || '';
+                    } catch (e) {}
+                    contentEl.innerHTML = `<div class="artifacts-empty"><h3>Failed to load file</h3>${detail ? `<p>${escapeHtml(detail)}</p>` : ''}</div>`;
                     return;
                 }
 
                 const text = await response.text();
+                if (text && text.indexOf('\u0000') !== -1) {
+                    contentEl.innerHTML = `<div class="artifacts-empty"><h3>Unsupported file type</h3><p>This file doesn't look like plain text.</p></div>`;
+                    return;
+                }
+                const backBtn = showBack ? `<button class="artifacts-refresh-btn" onclick="handleTextEditorBack()">Back</button>` : '';
 
                 contentEl.innerHTML = `
                     <div class="skills-pane">
                         <div class="skills-pane-header">
                             <div>
-                                <div class="skills-pane-title">Editing ${escapeHtml(title)}</div>
-                                <div class="skills-pane-subtitle">${escapeHtml(currentEditingFilePath)}</div>
+                                <div class="skills-pane-title" id="textEditorTitle">Editing ${escapeHtml(title)}</div>
+                                ${subtitleHtml}
                             </div>
                             <div class="skills-pane-actions">
                                 <button class="artifacts-refresh-btn" onclick="saveTextEditor()">Save</button>
-                                <button class="artifacts-refresh-btn" onclick="loadCommands()">Back</button>
+                                ${renameBtn}
+                                ${backBtn}
                             </div>
                         </div>
-                        <textarea id="textEditorArea" class="form-input form-textarea" style="min-height: 320px;"></textarea>
+                        <div id="monacoEditorArea" class="monaco-editor-host"></div>
                         <div id="textEditorStatus" class="form-hint" style="margin-top: 8px;"></div>
                     </div>
                 `;
 
-                const textArea = document.getElementById('textEditorArea');
-                textArea.value = text;
+                const statusEl = document.getElementById('textEditorStatus');
+                const hostEl = document.getElementById('monacoEditorArea');
+                if (statusEl) statusEl.textContent = 'Loading editor...';
+
+                try {
+                    const monaco = await ensureMonacoLoaded();
+                    const language = getMonacoLanguageForPath(path);
+                    monacoModelInstance = monaco.editor.createModel(text, language);
+                    monacoEditorInstance = monaco.editor.create(hostEl, {
+                        model: monacoModelInstance,
+                        theme: 'vs-dark',
+                        automaticLayout: true,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: 13,
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false,
+                        wordWrap: 'on',
+                    });
+                    monacoEditorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+                        saveTextEditor();
+                    });
+                    if (statusEl) statusEl.textContent = '';
+                } catch (e) {
+                    // Fallback to a basic textarea if Monaco fails to load
+                    contentEl.innerHTML = `
+                        <div class="skills-pane">
+                            <div class="skills-pane-header">
+                                <div>
+                                    <div class="skills-pane-title" id="textEditorTitle">Editing ${escapeHtml(title)}</div>
+                                    ${subtitleHtml}
+                                </div>
+                                <div class="skills-pane-actions">
+                                    <button class="artifacts-refresh-btn" onclick="saveTextEditor()">Save</button>
+                                    ${renameBtn}
+                                    ${backBtn}
+                                </div>
+                            </div>
+                            <textarea id="textEditorArea" class="form-input form-textarea" style="min-height: 320px;"></textarea>
+                            <div id="textEditorStatus" class="form-hint" style="margin-top: 8px;"></div>
+                        </div>
+                    `;
+                    const textArea = document.getElementById('textEditorArea');
+                    if (textArea) textArea.value = text;
+                    const status = document.getElementById('textEditorStatus');
+                    if (status) status.textContent = 'Monaco failed to load; using basic editor.';
+                }
             } catch (e) {
                 contentEl.innerHTML = '<div class="artifacts-empty"><h3>Failed to load file</h3></div>';
             }
+        }
+
+        async function renameTextEditorFile() {
+            if (!currentEditingFilePath) return false;
+            const inputEl = document.getElementById('textEditorFilenameInput');
+            if (!inputEl) return true; // nothing to rename
+
+            const desired = String(inputEl.value || '').trim();
+            const currentName = getPathBasename(currentEditingFilePath);
+            if (!desired || desired === '.' || desired === '..') {
+                alert('Please enter a valid filename');
+                inputEl.value = currentName;
+                return false;
+            }
+            if (desired.includes('/') || desired.includes('\\')) {
+                alert('Filename cannot include path separators');
+                inputEl.value = currentName;
+                return false;
+            }
+
+            if (desired === currentName) return true;
+
+            const dirName = getPathDirname(currentEditingFilePath);
+            const newPath = (dirName ? `${dirName}/` : '') + desired;
+
+            const statusEl = document.getElementById('textEditorStatus');
+            if (statusEl) statusEl.textContent = 'Renaming...';
+
+            const result = await moveWorkspaceItem(currentEditingFilePath, newPath, false);
+            if (!result) {
+                if (statusEl) statusEl.textContent = '';
+                inputEl.value = currentName;
+                return false;
+            }
+
+            currentEditingFilePath = newPath;
+            const dirLabelEl = document.getElementById('textEditorDirLabel');
+            if (dirLabelEl) dirLabelEl.textContent = dirName ? `${dirName}/` : '';
+            inputEl.value = desired;
+
+            try {
+                if (window.monaco && window.monaco.editor && monacoModelInstance) {
+                    window.monaco.editor.setModelLanguage(monacoModelInstance, getMonacoLanguageForPath(newPath));
+                }
+            } catch (e) {}
+
+            if (statusEl) {
+                statusEl.textContent = 'Renamed ✓';
+                setTimeout(() => {
+                    if (statusEl.textContent === 'Renamed ✓') statusEl.textContent = '';
+                }, 1200);
+            }
+
+            return true;
         }
 
         async function saveTextEditor() {
@@ -2707,25 +3595,32 @@ Instructions for Claude on how to use this skill..."></textarea>
                 return;
             }
 
-            const textArea = document.getElementById('textEditorArea');
             const statusEl = document.getElementById('textEditorStatus');
-            if (!textArea) return;
-
-            statusEl.textContent = 'Saving...';
+            const textArea = document.getElementById('textEditorArea');
+            const content = monacoEditorInstance ? monacoEditorInstance.getValue() : (textArea ? textArea.value : '');
+            if (content === null || content === undefined) return;
 
             try {
+                const renamed = await renameTextEditorFile();
+                if (!renamed) return;
+
+                statusEl.textContent = 'Saving...';
+
                 const response = await fetch(`${API_URL}/workspace/${encodeURIComponent(currentEditingFilePath)}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-API-Key': apiKey
                     },
-                    body: JSON.stringify({ content: textArea.value })
+                    body: JSON.stringify({ content })
                 });
 
                 if (response.ok) {
                     statusEl.textContent = 'Saved ✓';
-                    loadCommands();
+                    if (typeof currentEditorAfterSave === 'function') {
+                        disposeMonacoEditor();
+                        currentEditorAfterSave();
+                    }
                 } else {
                     const data = await response.json();
                     statusEl.textContent = `Save failed: ${data.detail || 'Unknown error'}`;
@@ -2819,20 +3714,28 @@ Instructions for Claude on how to use this skill..."></textarea>
             currentViewingSession = null;
 
             // Update tab buttons
+            document.getElementById('tabClaudeMd').classList.toggle('active', tab === 'claude');
             document.getElementById('tabSkills').classList.toggle('active', tab === 'skills');
             document.getElementById('tabArtifacts').classList.toggle('active', tab === 'artifacts');
             document.getElementById('tabCommands').classList.toggle('active', tab === 'commands');
             document.getElementById('tabSessions').classList.toggle('active', tab === 'sessions');
 
             // Show/hide content
+            document.getElementById('claudeContent').style.display = tab === 'claude' ? 'block' : 'none';
             document.getElementById('skillsContent').style.display = tab === 'skills' ? 'block' : 'none';
             document.getElementById('artifactsContent').style.display = tab === 'artifacts' ? 'block' : 'none';
             document.getElementById('commandsContent').style.display = tab === 'commands' ? 'block' : 'none';
             document.getElementById('sessionsContent').style.display = tab === 'sessions' ? 'block' : 'none';
 
             // Load content
-            if (tab === 'skills') {
-                loadSkills();
+            if (tab === 'claude') {
+                loadClaudeMd();
+            } else if (tab === 'skills') {
+                if (currentSkillExplorer && currentSkillExplorer.id) {
+                    loadSkillExplorer();
+                } else {
+                    loadSkills();
+                }
             } else if (tab === 'artifacts') {
                 loadArtifacts();
             } else if (tab === 'commands') {
@@ -2843,8 +3746,14 @@ Instructions for Claude on how to use this skill..."></textarea>
         }
 
         function refreshCurrentTab() {
-            if (currentExplorerTab === 'skills') {
-                loadSkills();
+            if (currentExplorerTab === 'claude') {
+                loadClaudeMd();
+            } else if (currentExplorerTab === 'skills') {
+                if (currentSkillExplorer && currentSkillExplorer.id) {
+                    loadSkillExplorer();
+                } else {
+                    loadSkills();
+                }
             } else if (currentExplorerTab === 'artifacts') {
                 loadArtifacts();
             } else if (currentExplorerTab === 'commands') {
@@ -2856,6 +3765,27 @@ Instructions for Claude on how to use this skill..."></textarea>
                     loadSessions();
                 }
             }
+        }
+
+        async function loadClaudeMd() {
+            const apiKey = document.getElementById('apiKey').value;
+            const contentEl = document.getElementById('claudeContent');
+            if (!apiKey) {
+                contentEl.innerHTML = `
+                    <div class="artifacts-empty">
+                        <h3>CLAUDE.md</h3>
+                        <p>Enter your API key in Settings to view and edit.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            await openTextEditor('.claude/CLAUDE.md', 'CLAUDE.md', {
+                containerId: 'claudeContent',
+                showBack: false,
+                afterSave: null,
+                allowRename: false,
+            });
         }
 
         async function loadSessions() {
@@ -3061,7 +3991,8 @@ Instructions for Claude on how to use this skill..."></textarea>
         }
 
         async function editSkill(skillId) {
-            openSkillModal(skillId);
+            const path = `.claude/skills/${skillId}/SKILL.md`;
+            await openTextEditor(path, `SKILL.md (${skillId})`, { containerId: 'skillsContent', onBack: loadSkills, allowRename: false });
         }
 
         async function saveSkill() {
@@ -3121,6 +4052,7 @@ Instructions for Claude on how to use this skill..."></textarea>
                 });
 
                 if (response.ok) {
+                    currentSkillExplorer = null;
                     loadSkills();
                 } else {
                     const data = await response.json();

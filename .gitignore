@@ -27,13 +27,18 @@ build/
 
 .specstory
 
+/.cursor/mcp.json
+
 test_*
 report.md
 plan.md
 peregian-hub-annual-report-2025.html
-.claude/skills/artifacts-builder
-.claude/skills/hub-assistant
 tools/hub_tools.py
-
+TODO.md
 CLAUDE.md
 .claude/settings.local.json
+
+/projects
+/.claude/skills
+/.claude/commands
+!/.claude/skills/skill-creator

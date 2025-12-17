@@ -21,18 +21,30 @@ A FastAPI-based API plus single-page chat UI for a Claude Code agent that can ch
 - `POST /skills/upload` — upload skill zip
 - `GET /skills/{id}/download` — download skill zip
 - `DELETE /skills/{id}` — delete skill
+- `GET /commands` — list commands
+- `GET /commands/{id}` — get command template
+- `POST /commands` — add/update a command template
+- `DELETE /commands/{id}` — delete a command
 - `GET /health` — health check
 
 ## Auth
 - All endpoints except `/health` require authentication (set via `API_KEY` env).
 - **Header (preferred):** `X-API-Key: your-key`
-- **Query param (webhooks):** `?api_key=your-key`
+- **Query param (webhooks only):** `?api_key=your-key`
+
+Startup guardrails:
+- `API_KEY` is required at startup.
+
+## Security Notes
+- Don’t commit secrets: keep API keys in env vars (e.g. `.env`, Railway variables). This repo ignores `.env` and `.claude/settings.local.json`.
+- If you ever committed an API key, rotate it (and consider rewriting git history if the repo is public).
 
 ## Permissions Modes
 - `default` — standard checks
 - `acceptEdits` (default) — auto-approve file edits/fs ops
 - `bypassPermissions` — auto-approve all tools (requires non-root; we run as `appuser`)
 Pass via `context.permission_mode` in `/chat` or toggle in the UI.
+`bypassPermissions` is disabled by default; enable it by setting `ALLOW_BYPASS_PERMISSIONS=1`.
 
 ## Workspace Files (volume)
 - Mounted at `/app/workspace` (Railway volume).
@@ -48,14 +60,32 @@ Pass via `context.permission_mode` in `/chat` or toggle in the UI.
 ## Commands (Slash Commands)
 - Commands are prompt templates stored at `$WORKSPACE_DIR/.claude/commands/{command_id}.md`
 - Invoke via `command` parameter in `/chat`: `{"command": "voice-transcript", "message": "the transcript text..."}`
-- Use `{{argument}}` placeholder in templates - replaced with the message content
-- Manage via API: `GET/POST/DELETE /commands`
-- Useful for webhooks that need consistent prompt formatting
+- Commands use Claude Code’s markdown format (YAML frontmatter + prompt body). Frontmatter `allowed-tools` controls what the command is allowed to run.
+- Inside command markdown, use `$ARGUMENTS` (or positional `$1`, `$2`, etc.) to consume the arguments passed after `/{command}`.
+- Manage via API: `GET/POST/DELETE /commands` (and/or edit the files on the volume).
+- Useful for webhooks that need consistent prompt formatting and reliable routing.
+
+## Webhooks (non-interactive permissions)
+Webhook-triggered runs can’t click “approve”, so **any tool that would normally prompt must be pre-approved** or you’ll see errors like “This command requires approval”.
+
+- Use `POST /webhook` to map arbitrary payloads into a session + message, optionally invoking a slash command:
+  - Example: `POST /webhook?api_key=...&command=voice-transcript&session_id=id&message=transcript&raw_response=true`
+- Recommended: keep permissions locked down and add explicit allow rules in `.claude/settings.json` (seeded into the volume by `entrypoint.sh`).
+- Avoid relying on `bypassPermissions` for production webhooks unless you fully trust the deployment and isolation.
+
+## Voice Transcript Workflow
+This repo includes a volume-managed voice pipeline intended for webhook ingestion from a voice app:
+
+- Command: `.claude/commands/voice-transcript.md`
+  - Saves the raw transcript to `./artifacts/transcripts/` via `.claude/commands/scripts/save_transcript.py` (unique filename, returns a public URL).
+  - Routes:
+    - `/process-note` → `.claude/commands/process-note.md` → saves cleaned notes to `./artifacts/notes/`
+    - `/process-meeting` → `.claude/commands/process-meeting.md` → saves diarised notes to `./artifacts/meeting-notes/`
 
 ## Running Locally
 1) `python -m venv .venv && source .venv/bin/activate`
 2) `pip install -r requirements.txt`
-3) `export API_KEY=dev-key` (or your key)
+3) `export API_KEY=dev-local-key` (or your key)
 4) `uvicorn main:app --reload`
 5) Open `chat.html` in a browser (set `API_URL` at top if needed).
 
@@ -66,17 +96,25 @@ Pass via `context.permission_mode` in `/chat` or toggle in the UI.
 - `WORKSPACE_DIR` (default `/app/workspace`)
 - `SKILLS_DIR` (default `$WORKSPACE_DIR/.claude/skills`)
 - `COMMANDS_DIR` (default `$WORKSPACE_DIR/.claude/commands`)
+- `PROJECT_CONTEXT_PATH` (default `$WORKSPACE_DIR/.claude/CLAUDE.md`)
+- `MAX_PROJECT_CONTEXT_CHARS` (default `50000`)
+- `ALLOW_BYPASS_PERMISSIONS` (default `0`) — set to `1` to allow `permission_mode=bypassPermissions`
+- `PUBLIC_BASE_URL` (optional) — used by slash commands to generate fully-qualified artifact URLs (defaults to the production Railway URL in the included commands).
 
 ## Deployment (Railway)
 - Dockerfile installs node + Claude CLI, creates `appuser`, uses entrypoint to `chown` `/app/workspace` before dropping privileges.
 - Attach a volume to `/app/workspace` for persistence.
 - Run `railway up --detach` to deploy.
+- `entrypoint.sh` seeds default `.claude/commands/`, `.claude/skills/`, `.claude/settings.json`, `.claude/CLAUDE.md`, and `.claude/commands/scripts/` into the volume **only if missing** (non-destructive). To pick up image updates, edit the volume files (preferred) or delete the specific file(s) from the volume so they can be re-seeded.
 
 ## Notable Files
 - `main.py` — FastAPI app and endpoints
 - `agent_manager.py` — chat logic, streaming, skills, workspace helpers
 - `chat.html` — single-page UI
 - `Dockerfile`, `entrypoint.sh` — image and permissions fix
+- `.claude/settings.json` — project permission rules used for non-interactive runs (webhooks)
+- `.claude/CLAUDE.md` — project context (volume-managed) appended to the system prompt
+- `.claude/commands/scripts/` — helper scripts invoked by commands
 
 
 ## Current Limitations

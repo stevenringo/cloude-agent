@@ -1,3 +1,11 @@
+"""
+This module implements the AgentManager class, which is used to manage the agent's state and interactions with the user.
+It provides methods for:
+- Chatting with the agent
+- Streaming chat responses
+- Managing skills and commands
+- Managing workspace files
+"""
 import json
 import os
 import logging
@@ -45,6 +53,10 @@ SKILLS_DIR = Path(os.environ.get("SKILLS_DIR", str(WORKSPACE_DIR / ".claude" / "
 # Commands directory - prompt templates on the volume
 # Can be overridden via COMMANDS_DIR env var
 COMMANDS_DIR = Path(os.environ.get("COMMANDS_DIR", str(WORKSPACE_DIR / ".claude" / "commands")))
+PROJECT_CONTEXT_PATH = Path(
+    os.environ.get("PROJECT_CONTEXT_PATH", str(WORKSPACE_DIR / ".claude" / "CLAUDE.md"))
+)
+_IMAGE_PROJECT_CONTEXT_FALLBACK = Path("/app/.claude/CLAUDE.md")
 
 _IDENTIFIER_RE = re.compile(r"^[a-z0-9_-]+$")
 
@@ -112,6 +124,33 @@ class AgentManager:
         # Ensure skills and commands directories exist
         SKILLS_DIR.mkdir(parents=True, exist_ok=True)
         COMMANDS_DIR.mkdir(parents=True, exist_ok=True)
+        self._ensure_project_context_file()
+
+    def _ensure_project_context_file(self) -> None:
+        """Ensure the project context file exists on the workspace volume (non-destructive)."""
+        try:
+            target = PROJECT_CONTEXT_PATH
+            if target.is_file():
+                return
+
+            # Only auto-create when the target lives under the workspace.
+            workspace_root = WORKSPACE_DIR.resolve()
+            try:
+                target.resolve().relative_to(workspace_root)
+            except Exception:
+                return
+
+            source_text: Optional[str] = None
+            if _IMAGE_PROJECT_CONTEXT_FALLBACK.is_file():
+                source_text = _IMAGE_PROJECT_CONTEXT_FALLBACK.read_text(encoding="utf-8")
+
+            if not source_text:
+                source_text = "# Project Context\n\n(Write project-specific instructions here.)\n"
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source_text, encoding="utf-8")
+        except Exception:
+            logger.exception("Failed to ensure project context file at %s", PROJECT_CONTEXT_PATH)
 
     def _resolve_permission_mode(self, context: Optional[dict]) -> str:
         mode = context.get("permission_mode", "acceptEdits") if context else "acceptEdits"
@@ -141,7 +180,25 @@ class AgentManager:
         permissions["allow"] = allow_list
         settings_obj["permissions"] = permissions
         return json.dumps(settings_obj)
-    
+
+    def _load_project_context(self) -> Optional[str]:
+        try:
+            path = PROJECT_CONTEXT_PATH
+            if not path.is_file():
+                return None
+            content = path.read_text(encoding="utf-8")
+        except Exception:
+            logger.exception("Failed to read project context from %s", PROJECT_CONTEXT_PATH)
+            return None
+
+        content = (content or "").strip()
+        if not content:
+            return None
+        max_chars = int(os.environ.get("MAX_PROJECT_CONTEXT_CHARS", "50000"))
+        if len(content) > max_chars:
+            content = content[:max_chars] + "\n\n[...truncated...]"
+        return content
+
     async def _get_stored_session(self, user_session_id: str) -> Optional[dict]:
         data = await self.redis.get(f"session:{user_session_id}")
         if data:
@@ -258,12 +315,14 @@ class AgentManager:
             settings = self._build_webhook_settings()
         
         # Set working directory to workspace for file operations and for discovering .claude/commands/ etc.
+        project_context = self._load_project_context()
         options = ClaudeCodeOptions(
             permission_mode=permission_mode,
             cwd=str(WORKSPACE_DIR),
             model=(model or None),
             resume=resume_session_id,
             settings=settings,
+            append_system_prompt=project_context,
         )
         
         # query() enables Claude Code preprocessing for slash commands and !` bash execution.
@@ -382,12 +441,14 @@ class AgentManager:
             settings = self._build_webhook_settings()
         
         # Set working directory to workspace for file operations and for discovering .claude/commands/ etc.
+        project_context = self._load_project_context()
         options = ClaudeCodeOptions(
             permission_mode=permission_mode,
             cwd=str(WORKSPACE_DIR),
             model=(model or None),
             resume=resume_session_id,
             settings=settings,
+            append_system_prompt=project_context,
         )
         
         # Signal that we're starting
@@ -729,6 +790,12 @@ class AgentManager:
     def get_workspace_file(self, file_path: str) -> Optional[tuple[bytes, str]]:
         """Get a file from workspace. Returns (content, filename) or None."""
         try:
+            requested = Path(file_path or "").as_posix().lstrip("./")
+        except Exception:
+            requested = file_path or ""
+        if requested == ".claude/CLAUDE.md":
+            self._ensure_project_context_file()
+        try:
             full_path = _resolve_under(WORKSPACE_DIR, file_path)
         except ValueError:
             return None
@@ -752,6 +819,49 @@ class AgentManager:
                 full_path.unlink()
             return True
         return False
+
+    def move_workspace_item(self, src_path: str, dst_path: str, *, overwrite: bool = False) -> dict:
+        """Move or rename a file/directory within the workspace."""
+        try:
+            src_full = _resolve_under(WORKSPACE_DIR, src_path)
+            dst_full = _resolve_under(WORKSPACE_DIR, dst_path)
+        except ValueError:
+            raise ValueError("Path must stay within workspace")
+
+        if not src_full.exists():
+            raise FileNotFoundError("Source not found")
+
+        if src_full.resolve() == dst_full.resolve():
+            return {
+                "from": str(src_full.relative_to(WORKSPACE_DIR)),
+                "to": str(dst_full.relative_to(WORKSPACE_DIR)),
+                "moved": False,
+            }
+
+        if src_full.is_dir():
+            try:
+                dst_full.resolve().relative_to(src_full.resolve())
+            except ValueError:
+                pass
+            else:
+                raise ValueError("Cannot move a directory into itself")
+
+        if dst_full.exists():
+            if not overwrite:
+                raise FileExistsError("Destination already exists")
+            if dst_full.is_dir():
+                shutil.rmtree(dst_full)
+            else:
+                dst_full.unlink()
+
+        dst_full.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src_full), str(dst_full))
+
+        return {
+            "from": str(src_full.relative_to(WORKSPACE_DIR)),
+            "to": str(dst_full.relative_to(WORKSPACE_DIR)),
+            "moved": True,
+        }
 
     # Command management methods
     def list_commands(self) -> list[dict]:

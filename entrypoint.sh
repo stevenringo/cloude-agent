@@ -20,6 +20,7 @@ mkdir -p "$CLAUDE_CONFIG_DIR"
 DEFAULT_COMMANDS_SRC="/app/.claude/commands"
 DEFAULT_SKILLS_SRC="/app/.claude/skills"
 DEFAULT_SETTINGS_SRC="/app/.claude/settings.json"
+DEFAULT_CLAUDE_MD_SRC="/app/.claude/CLAUDE.md"
 
 if [ -d "$DEFAULT_COMMANDS_SRC" ] && [ -z "$(ls -A "$COMMANDS_DIR" 2>/dev/null || true)" ]; then
     cp -n "$DEFAULT_COMMANDS_SRC"/*.md "$COMMANDS_DIR"/ 2>/dev/null || true
@@ -40,6 +41,12 @@ if [ -f "$DEFAULT_SETTINGS_SRC" ]; then
     mkdir -p "$WORKSPACE_DIR/.claude"
     cp -n "$DEFAULT_SETTINGS_SRC" "$WORKSPACE_DIR/.claude/settings.json" 2>/dev/null || true
     cp -n "$DEFAULT_SETTINGS_SRC" "$CLAUDE_CONFIG_DIR/settings.json" 2>/dev/null || true
+fi
+
+# Seed CLAUDE.md (project context) into the workspace volume (non-destructive).
+if [ -f "$DEFAULT_CLAUDE_MD_SRC" ]; then
+    mkdir -p "$WORKSPACE_DIR/.claude"
+    cp -n "$DEFAULT_CLAUDE_MD_SRC" "$WORKSPACE_DIR/.claude/CLAUDE.md" 2>/dev/null || true
 fi
 
 # Make all skill scripts executable
@@ -70,4 +77,3 @@ else
 
     exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
 fi
-

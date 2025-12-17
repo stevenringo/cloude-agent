@@ -2,8 +2,9 @@ import os
 import json
 import time
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -116,6 +117,12 @@ class CommandCreate(BaseModel):
 
 class WorkspaceFileUpdate(BaseModel):
     content: str = Field(..., description="Full text content to write to the file")
+
+
+class WorkspaceMoveRequest(BaseModel):
+    src: str = Field(..., description="Workspace-relative source path")
+    dst: str = Field(..., description="Workspace-relative destination path")
+    overwrite: bool = Field(default=False, description="Whether to overwrite destination if it exists")
 
 
 @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(verify_api_key)])
@@ -409,6 +416,64 @@ async def get_artifact(file_path: str):
     )
 
 
+@app.post("/artifacts/upload", dependencies=[Depends(verify_api_key)])
+async def upload_artifact_files(
+    target_dir: str = Form(""),
+    files: list[UploadFile] = File(...),
+):
+    """Upload one or more files into a subdirectory under /artifacts/."""
+    if agent_manager is None:
+        raise HTTPException(status_code=500, detail="Agent not initialized")
+
+    artifacts_root = Path(ARTIFACTS_DIR).resolve()
+    if not artifacts_root.exists():
+        artifacts_root.mkdir(parents=True, exist_ok=True)
+
+    normalized = (target_dir or "").strip().lstrip("./")
+    if normalized in ("", "artifacts"):
+        rel_target = ""
+    elif normalized.startswith("artifacts/"):
+        rel_target = normalized.removeprefix("artifacts/").lstrip("/")
+    else:
+        rel_target = normalized
+
+    dest_dir = (artifacts_root / rel_target).resolve()
+    try:
+        dest_dir.relative_to(artifacts_root)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="target_dir must stay within artifacts")
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    uploaded: list[dict] = []
+    for f in files:
+        if not f.filename:
+            continue
+        safe_name = Path(f.filename).name
+        if safe_name in ("", ".", ".."):
+            continue
+        data = await f.read()
+        dest_path = (dest_dir / safe_name).resolve()
+        try:
+            dest_path.relative_to(artifacts_root)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        dest_path.write_bytes(data)
+        uploaded.append(
+            {
+                "name": safe_name,
+                "path": str(dest_path.relative_to(artifacts_root)),
+                "size": len(data),
+            }
+        )
+
+    return {
+        "status": "uploaded",
+        "target_dir": f"artifacts/{rel_target}".rstrip("/"),
+        "files": uploaded,
+    }
+
+
 # Skill management endpoints
 @app.get("/skills", dependencies=[Depends(verify_api_key)])
 async def list_skills():
@@ -614,6 +679,25 @@ async def put_workspace_file(file_path: str, payload: WorkspaceFileUpdate):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/workspace/move", dependencies=[Depends(verify_api_key)])
+async def move_workspace_item(payload: WorkspaceMoveRequest):
+    """Move or rename a file/directory within the workspace."""
+    if agent_manager is None:
+        raise HTTPException(status_code=500, detail="Agent not initialized")
+    try:
+        result = agent_manager.move_workspace_item(payload.src, payload.dst, overwrite=payload.overwrite)
+        return {"status": "moved", **result}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Source not found")
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e) or "Destination already exists")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logger.exception("Workspace move failed")
+        raise HTTPException(status_code=500, detail="Failed to move item")
+
+
 # Session management endpoints
 @app.get("/sessions", dependencies=[Depends(verify_api_key)])
 async def list_sessions():
@@ -658,6 +742,7 @@ async def root():
             "GET /workspace": "List files in workspace",
             "GET /workspace/{path}": "Download file from workspace",
             "DELETE /workspace/{path}": "Delete file from workspace",
+            "POST /workspace/move": "Move/rename a file or directory in workspace",
             "GET /sessions": "List Claude sessions (newest first)",
             "GET /sessions/{id}": "Get session content (add ?raw=true for raw JSONL)",
             "GET /artifacts/{path}": "Public file access (no auth, no directory listing)",

@@ -1850,6 +1850,16 @@ Instructions for Claude on how to use this skill..."></textarea>
                 </button>
             </div>
             <div class="settings-body">
+                <!-- API URL Section -->
+                <div class="settings-section">
+                    <div class="settings-section-header">
+                        <h3>API URL</h3>
+                    </div>
+                    <input type="text" class="api-key-input" id="apiUrl" placeholder="https://your-app.up.railway.app">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                        The base URL of your deployed Cloude Agent API
+                    </div>
+                </div>
                 <!-- API Key Section -->
                 <div class="settings-section">
                     <div class="settings-section-header">
@@ -1993,8 +2003,8 @@ Instructions for Claude on how to use this skill..."></textarea>
     </div>
 
         <script>
-            const API_URL = 'https://clawed-api-production.up.railway.app';
-            
+            let API_URL = localStorage.getItem('clawed_api_url') || '';
+
             let currentSessionId = null;
             let attachedFiles = [];
             let isLoading = false;
@@ -2007,6 +2017,7 @@ Instructions for Claude on how to use this skill..."></textarea>
             if (skillsContentEl) {
                 skillsContentTemplate = skillsContentEl.innerHTML;
             }
+            loadApiUrl();
             loadApiKey();
             loadModel();
             loadChats();
@@ -2051,6 +2062,7 @@ Instructions for Claude on how to use this skill..."></textarea>
         function setupEventListeners() {
             const input = document.getElementById('messageInput');
             const apiKeyInput = document.getElementById('apiKey');
+            const apiUrlInput = document.getElementById('apiUrl');
             const dropZone = document.getElementById('dropZone');
 
             input.addEventListener('input', () => {
@@ -2063,6 +2075,11 @@ Instructions for Claude on how to use this skill..."></textarea>
                     e.preventDefault();
                     sendMessage();
                 }
+            });
+
+            apiUrlInput.addEventListener('input', () => {
+                saveApiUrl();
+                checkConnection();
             });
 
             apiKeyInput.addEventListener('input', () => {
@@ -2123,7 +2140,27 @@ Instructions for Claude on how to use this skill..."></textarea>
             const sendBtn = document.getElementById('sendBtn');
             const hasContent = input.value.trim() || attachedFiles.length > 0;
             const hasApiKey = document.getElementById('apiKey').value.trim();
-            sendBtn.disabled = !hasContent || !hasApiKey || isLoading;
+            const hasApiUrl = API_URL.trim();
+            sendBtn.disabled = !hasContent || !hasApiKey || !hasApiUrl || isLoading;
+        }
+
+        // API URL management
+        function loadApiUrl() {
+            const saved = localStorage.getItem('clawed_api_url');
+            if (saved) {
+                document.getElementById('apiUrl').value = saved;
+                API_URL = saved;
+            }
+        }
+
+        function saveApiUrl() {
+            let url = document.getElementById('apiUrl').value.trim();
+            // Remove trailing slash if present
+            if (url.endsWith('/')) {
+                url = url.slice(0, -1);
+            }
+            localStorage.setItem('clawed_api_url', url);
+            API_URL = url;
         }
 
         // API Key management
@@ -4366,6 +4403,13 @@ Instructions for Claude on how to use this skill..."></textarea>
             const statusEl = document.getElementById('apiStatus');
             const statusText = document.getElementById('statusText');
 
+            if (!API_URL) {
+                statusEl.className = 'api-status disconnected';
+                statusText.textContent = 'API URL not set';
+                renderSkills([]);
+                return;
+            }
+
             if (!apiKey) {
                 statusEl.className = 'api-status disconnected';
                 statusText.textContent = 'Not connected';
@@ -4379,6 +4423,7 @@ Instructions for Claude on how to use this skill..."></textarea>
                     statusEl.className = 'api-status connected';
                     statusText.textContent = 'Connected';
                     loadSkills();
+                    loadModelsFromApi();
                 } else {
                     statusEl.className = 'api-status disconnected';
                     statusText.textContent = 'Connection failed';

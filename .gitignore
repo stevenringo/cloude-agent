@@ -50,6 +50,8 @@ AGENTS.md
 
 !/.claude/commands/query-sessions.md
 !/.claude/commands/list-artifacts.md
+!/.claude/commands/process-meeting.md
+!/.claude/commands/process-note.md
 
 !/.claude/skills/skill-creator
 !/.claude/CLAUDE.md
